@@ -39,6 +39,7 @@ git add .
 git status
 git commit -m "change "
 git push -u origin main
+git push
 git branch -a               # 查看所有分支
 # PS D:\vm_sharedfolder\code> git branch -a
 # * main                    # 本地main分支

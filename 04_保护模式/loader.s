@@ -122,5 +122,5 @@ loader_print_32:
     mov esp,LOADER_STACK_TOP
     mov ax,SELECTOR_VIDEO
     mov gs,ax
-	mov byte [gs:160],'p'
+	mov byte [gs:160],'p'           ;protection mode
     jmp $
