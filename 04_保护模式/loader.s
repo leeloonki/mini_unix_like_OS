@@ -1,3 +1,13 @@
+; /*
+;  * @Author: leeloonki
+;  * @Bilibili: 李景芳_
+;  * @Date: 2022-01-10 21:52:28
+;  * @LastEditTime: 2022-01-11 11:29:27
+;  * @LastEditors: leeloonki
+;  * @Description: loader设置GDT等，进入保护模式
+;  * @FilePath: \code\04_保护模式\loader.s
+;  */
+
 %include "boot.inc"
 section loader vstart=LOADER_BASE_ADDR  ; loader加载到的内存地址 0x900
 LOADER_STACK_TOP equ LOADER_BASE_ADDR   ; 设置栈顶 0x900

@@ -17,5 +17,4 @@ mouse: enabled=0
 
 # 硬盘设置
 ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
-# 主盘磁盘60M，c:柱面121 h:磁头16 s:扇区63  
-ata0-master: type=disk, path="hd60M.img", mode=flat, cylinders=121, heads=16, spt=63
+ata0-master: type=disk, path="hd30M.img", mode=flat, cylinders=60, heads=16, spt=63

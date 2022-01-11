@@ -1,0 +1,36 @@
+<!--
+ * @Author: leeloonki
+ * @Bilibili: 李景芳_
+ * @Date: 2022-01-11 11:15:23
+ * @LastEditTime: 2022-01-11 11:17:45
+ * @LastEditors: leeloonki
+ * @Description: 
+ * @FilePath: \code\01_mbr写显存\note
+-->
+chunxi@ubuntu:/mnt/hgfs/code/01_mbr写显存$ /bochs/bin/bximage -hd -mode="flat" -size=30 -q hd30M.img
+========================================================================
+                                bximage
+                  Disk Image Creation Tool for Bochs
+          $Id: bximage.c 11315 2012-08-05 18:13:38Z vruppert $
+========================================================================
+
+I will create a 'flat' hard disk image with
+  cyl=60
+  heads=16
+  sectors per track=63
+  total sectors=60480
+  total size=29.53 megabytes
+
+Writing: [] Done.
+
+I wrote 30965760 bytes to hd30M.img.
+
+The following line should appear in your bochsrc:
+  ata0-master: type=disk, path="hd30M.img", mode=flat, cylinders=60, heads=16, spt=63 
+
+
+使用bochs提供的bximage创建指定大小的磁盘
+The following line should appear in your bochsrc:
+  ata0-master: type=disk, path="hd30M.img", mode=flat, cylinders=60, heads=16, spt=63 
+根据提示将上面倒数第二行配置语句写入bochsrc中
+

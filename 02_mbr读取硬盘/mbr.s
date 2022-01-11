@@ -1,3 +1,12 @@
+; /*
+;  * @Author: leeloonki
+;  * @Bilibili: 李景芳_
+;  * @Date: 2022-01-10 12:50:54
+;  * @LastEditTime: 2022-01-11 11:26:01
+;  * @LastEditors: leeloonki
+;  * @Description: 本程序从硬盘读取一个扇区到内存指定位置并跳转到该位置执行。
+;  * @FilePath: \code\02_mbr读取硬盘\mbr.s
+;  */
 ; mbr主引导程序
 ; ---------------------------------------------------------------
 %include "boot.inc"

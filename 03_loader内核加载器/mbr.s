@@ -1,3 +1,13 @@
+; /*
+;  * @Author: leeloonki
+;  * @Bilibili: 李景芳_
+;  * @Date: 2022-01-11 00:44:16
+;  * @LastEditTime: 2022-01-11 11:28:25
+;  * @LastEditors: leeloonki
+;  * @Description: mbr读取一个扇区的loader
+;  * @FilePath: \code\03_loader内核加载器\mbr.s
+;  */
+
 ; mbr主引导程序
 ; ---------------------------------------------------------------
 %include "boot.inc"

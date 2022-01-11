@@ -1,3 +1,13 @@
+; /*
+;  * @Author: leeloonki
+;  * @Bilibili: 李景芳_
+;  * @Date: 2022-01-11 00:44:21
+;  * @LastEditTime: 2022-01-11 11:29:19
+;  * @LastEditors: leeloonki
+;  * @Description: mbr读取4扇区的loader
+;  * @FilePath: \code\04_保护模式\mbr.s
+;  */
+
 ; mbr主引导程序
 ; ---------------------------------------------------------------
 %include "boot.inc"
