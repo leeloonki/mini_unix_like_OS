@@ -61,13 +61,11 @@ jmp loader_start_16
     ;   INDEX       15..3       select a segment
     ;   TI          2           TI=0 search GDT;TI=1 search LDT 
     ;   RPL         1..0        request privilege 00 01 10 11
-
-    loadermsg   db 'loader in real mode'
-
     ; 以下两行供48位寄存器GDTR加载GDT表使用
     gdt_ptr     dw GDT_LIMIT            ;16位GDT以字节的界限
                 dd GDT_BASE             ;GDT的32位起始地
 
+    loadermsg   db 'loader in real mode'
 ; -------------------------------------------------
 ; 实模式下输出字符
 ; 使用INT 0x10  功能号AH = 0x13 子功能:打印字符串
