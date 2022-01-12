@@ -1,0 +1,50 @@
+; 获取物理内存
+
+loader 数据结构定义: 
+    创建GDT描述符表
+    初始化段选择子 
+    设置GDT指针
+    物理内存大小 total_mem_bytes 四字节(32bit)
+    计算最终内存必要的信息数据结构
+        ards_buf times 244 db 0
+        ards_nr dw 0
+
+loader 执行流程:
+    mbr jmp到 loader中 loader_start_16开始运行,
+    loader_start_16中完成获取物理内存操作
+    并将获取到的物理内存保存到total_mem_bytes
+    获取成功后 开始进入保护模式
+        打开A20地址线
+        加载GDT表
+        设置CR0寄存器
+        jmp dword SELECTOR_CODE:loader_print_32(进入32位保护模式)
+loader 执行结果:
+    若成功获取物理内存 跳转到loader_print_32处执行
+    且 则可在total_mem_bytes(0xb00) 查看获取的内存大小
+    
+    若获取失败或 则未成功跳转到32位指令标号loader_print_32则hlt
+
+
+说明:
+    vstart=LOADER_BASE_ADDR(0x900)
+    loader 经nasm编译链接为bin文件加载到内存后,
+    其起始地址为0x900,0x900开始的内存地址定义了4个段选择符,并
+    预留60个段选择符,标号total_mem_bytes所在内存地址可以方便计算:
+    ; total_mem_bytes用于保存内存容量,以字节为单位
+    ; 当前偏移loader.bin文件头0x200字节,loader.bin的加载地址是0x900,
+    ; (4+60)*8byte = 512byte = 0x200byte
+    ; 故total_mem_bytes内存中的地址是0x900+0x200 = 0xb00.
+    接着定义gdt_ptr ards_buf ards_nr 
+    ards_buf 之所以定义为244是因为希望loader_start_16内存地址凑整
+    total_mem_bytes4字节+gdt_ptr6字节+ards_buf244字节+ards_nr2,共256字节即0x100字节
+    那么loader_start_16相对于内存0x900偏移为 0x200 + 0x100 = 0x300
+    以便在mbr中可以直接跳转到loader_start_16处运行
+    jmp LOADER_BASE_ADDR + 0x300;读入后从0x900 + 0x300 开始的loader_start_16运行
+
+bochs中通过xp 0xb00 获取到该地址内存值为0x02000000
+0x2000000 = 2^(4*6) = 32M 
+与定义的bochsrc配置文件设置的内存一致
+# 机器内存: 32MB
+megs: 32 
+    
+    
