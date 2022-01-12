@@ -105,7 +105,7 @@ loader_start_16:
     or eax,0x00000001                 ;cr0 0位置1
     mov cr0,eax
 
-    jmp dword SELECTOR_CODE:loader_print_32
+    jmp dword SELECTOR_CODE:loader_print_32 ;code段基址0,偏移地址最大4G
 
 ; -------------------------------------------------
 ; 保护模式下输出字符
