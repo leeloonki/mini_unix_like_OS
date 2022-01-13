@@ -158,7 +158,7 @@ p_mode_start:
     mov ds,ax
     mov es,ax
     mov ss,ax                   ;flat模式 ds,es,ss均为0
-    mov esp,LOADER_STACK_TOP
+    mov esp,LOADER_STACK_TOP    ;栈指针0x900,栈向下扩展
     mov ax,SELECTOR_VIDEO
     mov gs,ax                   
 
