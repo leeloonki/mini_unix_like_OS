@@ -46,11 +46,11 @@ section mbr vstart=0x7c00
 	mov eax,LOADER_START_SECTOR ;loader起始扇区28位LBA地址
 	mov bx,LOADER_BASE_ADDR		;loader写入内存地址 bx = 0x900
 	mov cx,1					;写入从LOADER_START_SECTOR开始的一个扇区
-	call rd_disk				;读取磁盘扇区
+	call rd_disk_m_16				;读取磁盘扇区
 
 	jmp LOADER_BASE_ADDR		;读入后从0x900开始的loader运行
 
-rd_disk:
+rd_disk_m_16:
 ; 读取磁盘
 ; ---------------------------------------------------------------
 	mov esi,eax					;保存eax原值
