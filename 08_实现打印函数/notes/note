@@ -1,0 +1,44 @@
+基于显存文本模式下:
+    在内存地址 0xb8000 - 0xbffff 共32Kb内存为显存文本模式下的内存地址
+    通过访问显卡端口寄存器CRT Controller Registers 实现打印字符功能
+
+CRT Controller Resgistes 通过索引方式被两个端口寄存器访问
+    Address Register    3D4h
+    Data Register       3D5h
+
+通过向Address Register 写入待访问的 sub-register 索引
+通过读写Data Register 访问该sub-register 
+
+; 访问步骤
+; Input the value of the Address Register and save it for step 6
+; Output the index of the desired Data Register to the Address Register.
+; Read the value of the Data Register and save it for later restoration upon termination, if needed.
+; If writing, modify the value read in step 3, making sure to mask off bits not being modified.
+; If writing, write the new value from step 4 to the Data register.
+; Write the value of Address register saved in step 1 to the Address Register.
+
+; Index 00h -- Horizontal Total Register
+; Index 01h -- End Horizontal Display Register
+; Index 02h -- Start Horizontal Blanking Register
+; Index 03h -- End Horizontal Blanking Register
+; Index 04h -- Start Horizontal Retrace Register
+; Index 05h -- End Horizontal Retrace Register
+; Index 06h -- Vertical Total Register
+; Index 07h -- Overflow Register
+; Index 08h -- Preset Row Scan Register
+; Index 09h -- Maximum Scan Line Register
+; Index 0Ah -- Cursor Start Register
+; Index 0Bh -- Cursor End Register
+; Index 0Ch -- Start Address High Register
+; Index 0Dh -- Start Address Low Register
+; Index 0Eh -- Cursor Location High Register
+; Index 0Fh -- Cursor Location Low Register
+; Index 10h -- Vertical Retrace Start Register
+; Index 11h -- Vertical Retrace End Register
+; Index 12h -- Vertical Display End Register
+; Index 13h -- Offset Register
+; Index 14h -- Underline Location Register
+; Index 15h -- Start Vertical Blanking Register
+; Index 16h -- End Vertical Blanking
+; Index 17h -- CRTC Mode Control Register
+; Index 18h -- Line Compare Register
