@@ -1,0 +1,170 @@
+07_进入内核:
+
+编写内核:
+        新建kernel/main.c
+
+        编译
+        
+        指定内核入口地址链接生成kernel.bin
+                ld main.o -Ttext 0xc0001200 -e main -o kernel.bin
+                -e      指定程序入口地址(loader 跳转目标地址)
+                -Ttext  指定kernel.bin装入内存的起始虚拟地址
+
+        ;   Entry point address:               0xc0001200       内核入口地址为main 0xc0001200
+        ;   Number of program headers:         2                kernel.bin elf可执行文件含2个段
+        ;   Start of program headers:          52 (bytes into file) 程序头表偏移文件起始地址52字节
+        ;   Size of program headers:           32 (bytes)       程序头表中每个程序头占32字节
+        ;   Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+        ;   LOAD           0x000000 0xc0001000 0xc0001000 0x0023c 0x0023c R E 0x1000
+        ; LOAD段(只读代码段)为 R E只读、可执行段(包括只读的elf和程序头表 和只读可执行的指令)
+        ; LOAD偏移文件起始地址为0,LOAD段以0x1000 4kb一页对齐,
+        ; 其加载到内存后的虚拟地址为0xc0001000开始的一页中,且内核程序入口地址在该只读代码段LOAD中偏移200处
+
+
+        ; chunxi@ubuntu:/mnt/hgfs/code/07_进入内核/kernel$ readelf -e kernel.bin 
+        ; ELF Header:
+        ;   Magic:   7f 45 4c 46 01 01 01 00 00 00 00 00 00 00 00 00        
+        ;   Class:                             ELF32
+        ;   Data:                              2's complement, little endian
+        ;   Version:                           1 (current)
+        ;   OS/ABI:                            UNIX - System V
+        ;   ABI Version:                       0
+        ;   Type:                              EXEC (Executable file)       
+        ;   Machine:                           Intel 80386
+        ;   Version:                           0x1
+        ;   Entry point address:               0xc0001200
+        ;   Start of program headers:          52 (bytes into file)
+        ;   Start of section headers:          864 (bytes into file)        
+        ;   Flags:                             0x0
+        ;   Size of this header:               52 (bytes)
+        ;   Size of program headers:           32 (bytes)
+        ;   Number of program headers:         2
+        ;   Size of section headers:           40 (bytes)
+        ;   Number of section headers:         7
+        ;   Section header string table index: 4
+
+        ; Section Headers:
+        ;   [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al
+        ;   [ 0]                   NULL            00000000 000000 000000 00      0   0  0
+        ;   [ 1] .text             PROGBITS        c0001200 000200 000005 00  AX  0   0  1
+        ;   [ 2] .eh_frame         PROGBITS        c0001208 000208 000034 00   A  0   0  4
+        ;   [ 3] .comment          PROGBITS        00000000 00023c 000035 01  MS  0   0  1
+        ;   [ 4] .shstrtab         STRTAB          00000000 000329 000034 00      0   0  1
+        ;   [ 5] .symtab           SYMTAB          00000000 000274 000090 10      6   5  4
+        ;   [ 6] .strtab           STRTAB          00000000 000304 000025 00      0   0  1
+        ; Key to Flags:
+        ;   W (write), A (alloc), X (execute), M (merge), S (strings)
+        ;   I (info), L (link order), G (group), T (TLS), E (exclude), x (unknown)
+        ;   O (extra OS processing required) o (OS specific), p (processor specific)
+
+        ; Program Headers:
+        ;   Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+        ;   LOAD           0x000000 0xc0001000 0xc0001000 0x0023c 0x0023c R E 0x1000
+        ;   GNU_STACK      0x000000 0x00000000 0x00000000 0x00000 0x00000 RW  0x10
+
+        ;  Section to Segment mapping:
+        ;   Segment Sections...
+        ;    00     .text .eh_frame
+        ;    01
+
+
+
+内核写入硬盘位置:
+
+        已有:   
+                build.sh中
+                dd if=mbr.bin of=./hd30M.img bs=512 count=1 seek=0 conv=notrunc 
+                dd if=loader.bin of=./hd30M.img bs=512 count=4 seek=2 conv=notrunc 
+                mbr 将写入硬盘第0扇区,seek=0
+                loader 将从第2扇区开始写入,seek=2
+        
+                查看当前loader.bin大小
+                -rwxrwxrwx 1 root root 1.2K Jan 12 23:35 loader.bin
+                loader.bin 大小约为1.2kb < 3扇区(3*512b) 
+                loader 从硬盘第二扇区开始写,占硬盘 2 - 4 三个扇区
+
+        得:
+                我们将内核从硬盘第9扇区开始写入
+                估计内核文件kernel.bin最终也小于 100Kb 这里将count设置为 100Kb/0.5Kb = 200(个)
+                dd if=kernel.bin of=./hd30M.img bs=512 count=200 seek=9 conv=notrunc 
+                # if=kernel.bin < bs*count(100Kb) 时 dd命令按照kernel.bin实际大小写入硬盘
+
+
+loader 加载内核:
+        1.将硬盘第9扇区开始的内核文件kernel.bin加载到内存缓冲区
+                loader通过调用读磁盘函数读取 rd_disk_m_32
+                ; 内核文件kernel.bin 中不只有指令数据还有elf头 程序头表(segment table)等信息,不能直接执行
+                ; 为了执行内核文件kernel.bin中的程序(segment),需要loader需要解析segment table,并将这些
+                ; segment加载到它们对应的地址空间中(kernel.bin经链接后,其中的segment已有具体地址)
+
+        2.对内核初始化:
+                loader 调用kernel_init 解析段,将段中的内容拷贝到对应内存空间
+                ; 初始化即解析kernel.bin中的segment table 将这些segment加载到对应内存空间
+        3.loader jmp到内核程序段执行
+                通过跳转指令 jmp
+                ; 内核程序段起始地址即内核程序入口地址可在elf头中的entry属性获取
+                ; 为了希望指定内核程序在物理内存的起始地址,可以通过链接时指定内核程序入口地址(loader可跳转的地址)
+
+        对于1. 加载硬盘上的内核文件到内存：
+                实模式下可用内存空间:
+
+                序号    起始        结束     大小
+                ①       0x7E00  -  0X9FBFF   608KB        
+                ②       0x7C00  -  0X7DFF    512B     MBR 引导扇区    
+                ③       0x500   -  0X7BFF    30KB     LOADER 在0x900起始处                
+
+                当前内核文件kernel.bin经由main.c编译链接而来,实际大小不过几个扇区。
+                后续内核大小不断增加，我们将内核kernel.bin放到1M空间下的高地址部分,如0x70000(位于序号①所在的608Kb内存中)
+                从0x70000 - 0x9fc00作为kernel.bin的内存缓冲区。
+                同时有:
+                0x9fbff - 0x70000 + 1 = 0x2fc00 = 195584b 约等于 200Kb
+                内核文件kernel.bin从0x70000向高地址扩展 200Kb缓冲区够用
+
+        对于2. 
+        
+                kernel.bin文件经链接后已有地址,loader根据程序头表将表描述的各段(可执行文件的存储器映像如读写数据段、只读代码段)
+                加载到对应的(分页模式下)虚拟内存地址。
+                内核程序段 实际运行在物理内存在1M空间内,经页表映射对应到3G - 4G内存空间。
+                连接阶段确定程序地址,若想将内核安排在指定虚拟内存区域,就将内核地址链接成对应的虚拟地址。
+                kernel/main.c 运行在虚拟地址空间0xc0000000(3G以上)
+                
+                ; 开启分页函数setup_page:
+                ;         mov ecx,256 1M / 4k = 256个页表项
+                ;         mov esi,0
+                ;         mov edx,PG_US_U | PG_RW_W | PG_P   edx高20位均为0对应初始物理内存地址0x0
+                ; .create_pte:                        ;创建页表项 page table entry
+                ;         mov [ebx+esi*4],edx         ;ebx = 0x101000 将0到4k-1 4k内存填入第0个页目录项
+                ;         add edx,4096                ; + 4k
+                ;         inc esi
+                ;         loop  .create_pte           ;loop 256 共256 *4k = 1M(内核所在1M空间)
+                ; 第0个页目录地址为0x101000(开启分页函数中.create_pde: 已将内存存从0开始4M空间对应到页目录项0) 
+                ; .create_pte将第0个页目录项中的0-255 共 4Kb*256 = 1M空间对应了实际物理内存
+        
+                查看当前loader.bin大小:
+                -rwxrwxrwx 1 root root 1.2K Jan 12 23:35 loader.bin
+                loader.bin从0x900开始,其大小1.2k大小不超过2k字节 
+                2k= 0100 0000 0000b = 0x400
+                loader结束内存地址 < 0x900 + 0x400 = 0xd00
+
+                根据loader < 0xd00 < 0X1200
+                在链接时希望指定内核程序main.c运行在0x1200开始的物理内存地址,考虑到内核虚拟地址运行在3G(0xc0000000)以上空间,
+                链接时指定kernel.bin中main函数入口d的虚拟地址entry为 0x1200 + 0xc000 0000 = 0xc000 1200
+
+        对于3.  kernel.bin中elf头 的entry属性为内核入口地址(jmp entry)
+
+
+
+                ;         /* Program segment header.  */
+
+                ; typedef struct
+                ; {
+                ;   Elf32_Word	p_type;			/* Segment type */
+                ;   Elf32_Off	p_offset;		/* Segment file offset */
+                ;   Elf32_Addr	p_vaddr;		/* Segment virtual address */
+                ;   Elf32_Addr	p_paddr;		/* Segment physical address */
+                ;   Elf32_Word	p_filesz;		/* Segment size in file */
+                ;   Elf32_Word	p_memsz;		/* Segment size in memory */
+                ;   Elf32_Word	p_flags;		/* Segment flags */
+                ;   Elf32_Word	p_align;		/* Segment alignment */
+                ; } Elf32_Phdr;
+                ; 8个字段每个4字节 32/4 =8
