@@ -1,0 +1,36 @@
+实现时钟中断:
+    1.编写中断处理程序
+    2.创建中断描述符表，安装中断处理程序
+    3.设置中断控制器 8259A
+        采用2片8259,级联方式
+    4.加载IDT中断描述符表
+    5.开中断测试时钟中断
+
+
+
+中断后，处理器向栈中压入数据情况:
+    一、without privilege transition 时：
+        Ⅰ.without error code
+            push old eflags 
+            push old cs
+            push old eip        
+        Ⅱ.with error code
+            push old eflags 
+            push old cs
+            push old eip        
+            push error code
+
+    二、with privilege transition 时：
+        Ⅰ.without error code
+            push old ss
+            push old esp
+            push old eflags 
+            push old cs
+            push old eip        
+        Ⅱ.with error code
+            push old ss 
+            push old esp
+            push old eflags 
+            push old cs
+            push old eip        
+            push error code
