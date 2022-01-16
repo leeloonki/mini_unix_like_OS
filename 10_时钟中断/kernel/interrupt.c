@@ -23,12 +23,55 @@ struct gate_desc {
     uint16_t func_offset_high_word;
 };
 
-//定义中断描述符表(数组)
+// 定义中断描述符表(数组)
 static struct gate_desc idt[IDT_DESC_CNT];  
 static void make_idt_desc(struct gate_desc *p_gate_desc,uint8_t attr,void * function);
 extern void* intr_entry_table[IDT_DESC_CNT];//kernel中定义
 
-// 创建中断门描述符
+// 2.1 具体的中断处理函数表kernel.s中的intrxxentry只是中断程序入口,具体调用还是得调用这里idt_table[xx]的具体中断函数
+void* idt_table[IDT_DESC_CNT];
+// 2.1 保存对应中断或异常名字
+char *intr_name[IDT_DESC_CNT];
+
+// 2.2 具体的中断处理函数
+static void general_intr_handler(uint8_t vec_nr){
+    put_str("int vector :0x");
+    put_int(vec_nr);            //中断号
+    put_char('\n');
+}
+
+// 2.3 idt_table中具体的中断函数赋值
+static void exception_init(){
+    int i;
+    for(i =0;i<IDT_DESC_CNT;i++){
+        // 默认每个中断或异常的具体中断处理函数为gener_intr_handler
+        idt_table[i] = general_intr_handler;
+        intr_name[i] = "unknown";   
+    }
+    intr_name[0] = "Divide Error";
+    intr_name[1] = "Debug Exception";
+    intr_name[2] = "NMI Interrupt";
+    intr_name[3] = "Breakpoint";
+    intr_name[4] = "Overflow";
+    intr_name[5] = "Bound Check";
+    intr_name[6] = "Illegal Opcode";
+    intr_name[7] = "Device Not available";
+    intr_name[8] = "Double Fault";
+    intr_name[9] = "Reserved";
+    intr_name[10] = "Invalid TSS";
+    intr_name[11] = "Segment Not Present";
+    intr_name[12] = "Stack Exception";
+    intr_name[13] = "General Protection Fault";
+    intr_name[14] = "Page Fault";
+    intr_name[15] = "Reserved";
+    intr_name[16] = "Floating Point Error";
+    intr_name[17] = "Alignment Check";
+    intr_name[18] = "Machine Check";
+    intr_name[19] = "Simd Floating Point Error";
+}
+
+
+// 创建中断门描述符 将kernel.s中的中断入口地址填充到idt，供lidt idt加载装配idt
 // 参数 1 中断门描述符指针， 参数2 中断描述符属性， 参数3 中断处理函数
 static void make_idt_desc(struct gate_desc *p_gate_desc,uint8_t attr,void * function){   // func:中断处理函数入口地址
     p_gate_desc->func_offset_low_word = (uint32_t)function & 0x0000FFFF;     // 设置中断门描述符 低16位offset
@@ -82,9 +125,8 @@ static void pic_init(){
 // ---------------------------------- 3.1.完成所有中断初始化工作 -----------------------------
 void idt_init(){
     put_str("   idt_init start\n");
-    put_str(" --------------1---------\n ");
     idt_desc_init();                    //初始化中断描述符表
-    put_str(" --------------2---------\n ");
+    exception_init();                   // 2.4注册具体中断函数
     pic_init();                         //初始化中断控制器
 // ---------------------------------- 4.加载IDT中断描述符表,开中断 -----------------------------
     // lidt加载IDT表

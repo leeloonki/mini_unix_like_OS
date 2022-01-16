@@ -1,1 +1,1 @@
-rm -f build/*
+rm -r -f build/*

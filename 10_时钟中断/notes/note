@@ -1,4 +1,4 @@
-实现时钟中断:
+一、实现时钟中断:
     1.编写中断处理程序
     2.创建中断描述符表，安装中断处理程序
     3.设置中断控制器 8259A
@@ -6,31 +6,45 @@
     4.加载IDT中断描述符表
     5.开中断测试时钟中断
 
+二、改进中断处理程序
+    分析:
+        原中断处理程序在kernel.s中通过宏定义了33个中断处理程序:
+        且中断入口地址在中断入口表:intr_entry_table中
+        为实现较复杂的中断处理程序,我们可以在interrupt.c中写每个中断的中断处理函数,
+        定义idt_table[],每个表项(table entry)4字节(偏移)存放每个中断处理函数偏移,
+        然后在kernel.S中的每个中断处理程序调用interrupt.c中idt_table[]对应表项的中断入口地址
+        interrupt.c中,引用kernel.s中的中断入口地址表 intr_entry_table[IDT_DESC_CNT] 与idt_table[IDT_DESC_CNT]一一对应
+    实现:
+        kernel.s 中 intr%1entry: 进入该函数时,调用interrupt.c中的idt_table[]对应表项
+        interrupt.c:
+            2.1 定义中断函数表idt_table
+            2.2 编写具体中断处理函数
+            2.3 注册中断处理函数到idt_table
+        kernel.s
+            2.4 kernel.s中调用idt_table[xx];
+; 中断后，处理器向栈中压入数据情况:
+;     一、without privilege transition 时：
+;         Ⅰ.without error code
+;             push old eflags 
+;             push old cs
+;             push old eip        
+;         Ⅱ.with error code
+;             push old eflags 
+;             push old cs
+;             push old eip        
+;             push error code
 
-
-中断后，处理器向栈中压入数据情况:
-    一、without privilege transition 时：
-        Ⅰ.without error code
-            push old eflags 
-            push old cs
-            push old eip        
-        Ⅱ.with error code
-            push old eflags 
-            push old cs
-            push old eip        
-            push error code
-
-    二、with privilege transition 时：
-        Ⅰ.without error code
-            push old ss
-            push old esp
-            push old eflags 
-            push old cs
-            push old eip        
-        Ⅱ.with error code
-            push old ss 
-            push old esp
-            push old eflags 
-            push old cs
-            push old eip        
-            push error code
+;     二、with privilege transition 时：
+;         Ⅰ.without error code
+;             push old ss
+;             push old esp
+;             push old eflags 
+;             push old cs
+;             push old eip        
+;         Ⅱ.with error code
+;             push old ss 
+;             push old esp
+;             push old eflags 
+;             push old cs
+;             push old eip        
+;             push error code

@@ -8,10 +8,9 @@
 ; 以下两行指令实现栈顶格式一致
 %define ERROR_CODE  nop                 ;会自动压入错误码的异常 入栈不做操作
 %define ZERO push 0                     ;无错误码的异常，进入中断函数首先push 0，统一栈顶
-extern put_str                          ;声明外部函数
+extern idt_table
 
 section .data
-intr_str db "interrupt occur!",0xa,0  ;ASCII = 0xa换行,ASCII= 0 字符串结尾标志;该字符串被put_str输出
 global intr_entry_table                 ; 中断(异常)处理程序表
 intr_entry_table:
 ; 对中断处理程序编写宏进行定义
@@ -26,22 +25,43 @@ intr%1entry:                            ;%1对应宏VECTOR 第一个参数 %2对
     ; 已知哪些中断会压入errorcode,对于那些无errocode的中断
     ; 我们手动向栈中压入一个数,实现有无错误码的中断(异常)栈顶位置一致
     %2
-    ; 中断处理逻辑    
-    push intr_str
-    call put_str
-    add esp,4
 
+    ; 中断处理逻辑    
+    ; 汇编调用c,保护寄存器上下文(段寄存器和8个通用寄存器)
+    push ds
+    push es
+    push fs
+    push gs
+    pushad
+
+    ; 发中断结束EOI
     ; 后续将在设置8259中断控制器时指定手动结束标志,这里通过向8259写入EOI中断处理结束标记
     ; 向8259A发送一个EOI，其对应的OCW2的值为0x20
     mov al,0x20
     out 0xa0,al                         ;从片ocw2 端口0xa0 主片ocw2端口0x20
     out 0x20,al
-    add esp,4                           ;跨过error_code,将栈顶指向eip
-    iret
+
+    ; 调用interrupt.c中的idt_table[]    ;%1 即中断号
+    push %1                             ;通过idt_table[%1]调用
+    call [idt_table + %1*4]
+    jmp intr_exit 
+    
 
 section .data                           ;经链接后该.data和上面intr_entry_table所在.data合并
     dd  intr%1entry                     ;存储该中断入口地址 ,其中第一个dd空间紧邻intr_entry_table
 %endmacro
+
+section .text
+global intr_exit
+intr_exit:
+    add esp,4                           ;跳过中断号  push%1
+    popad
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    add esp,4                           ;跳过栈顶error_code
+    iretd
 
 
 VECTOR 0x00, ZERO
