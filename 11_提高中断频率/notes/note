@@ -1,0 +1,20 @@
+分析:
+    中断控制器8259的IRQ0引脚的时钟中断信号是由8253的计数器0产生，
+    通过设置8253计数器0工作方式和计数初值，指定其发出时钟中断信号频率
+实现步骤:
+    1.向8253控制寄存器端口写控制字，指定8253内部的计数器、该计数器工作方式
+    2.向计数器端口写计数初值
+
+
+
+The timer that is used by the system on x86 PCs is Channel 0, and its clock ticks at a theoretical value of 1193181.8181... Hz
+x86上使用计数器0产生时钟中断信号 
+    8253本身工作频率为1193181HZ 若想产生100HZ时钟中断信号
+    那么其计数初值为:1193181/100
+
+    Channel 0 i:the initial value of the counter is set by sending bytes to the Control, 
+    then Data I/O Port registers (the value 36h sent to port 43h, 
+    then the low byte to port 40h, and port 40h again for the high byte)
+    控制端口 0x43h
+    数据端口 0x40h
+        对16位计数初值先写低字节再写高字节
