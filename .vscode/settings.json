@@ -4,6 +4,9 @@
         "print.h": "c",
         "init.h": "c",
         "timer.h": "c",
-        "interrupt.h": "c"
+        "interrupt.h": "c",
+        "memory.h": "c",
+        "global.h": "c",
+        "stdint.h": "c"
     }
 }
