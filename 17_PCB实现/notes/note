@@ -1,0 +1,3 @@
+构造PCB :
+    在kernel/thread/thread.h定义PCB相关数据结构
+    kernel/thread/thread.c实现内核级线程创建
