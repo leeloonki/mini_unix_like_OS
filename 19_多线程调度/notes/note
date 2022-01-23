@@ -1,0 +1,22 @@
+需要实现：多个内核级线程在调度器调度下轮流执行
+
+PCB需要包括：
+        ticks 每次任务在CPU运行的时钟数 elapsed_ticks 该任务总共运行经历的时钟数
+        list_elem类型 general_tag（一般队列中的结点）、all_list_tag（线程队列thread_all_list中的结点）
+
+任务调度器实现任务切换：
+    根据thread.c定义的任务状态，每个任务有不同的状态
+    每次调度器从就绪队列中队首元素list_elem对应的PCB调度执行。（在PCB中定义list_elem成员,根据PCB中list_elem队列可以找到此队列其他PCB）
+    我们在thread.c中定义两种类型的PCB队列为：就绪队列、全部队列
+    
+调度器scheduler：发生任务调度不一定是时钟中断，还有可能是任务阻塞等。因此实现schedule时需要判断是何原因阻塞。
+
+完整调度过程步骤：
+    1.时钟中断处理函数(通常情况下任务调度是根据时钟中断)
+    2.调度器schedule
+    3.任务切换函数switch_to
+
+
+线程初始化过程：
+1.创建两队列
+2.将main函数初始化为PCB线程
