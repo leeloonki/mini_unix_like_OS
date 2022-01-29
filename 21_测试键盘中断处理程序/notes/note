@@ -26,39 +26,54 @@ IO Port	Access Type	Purpose
 
 
 
-Status Register
-The Status Register contains various flags that show the state of the PS/2 controller. The meanings for each bit are:
+; Status Register
+; The Status Register contains various flags that show the state of the PS/2 controller. The meanings for each bit are:
 
-Bit	Meaning
-0	Output buffer status (0 = empty, 1 = full)
-(must be set before attempting to read data from IO port 0x60)
+; Bit	Meaning
+; 0	Output buffer status (0 = empty, 1 = full)
+; (must be set before attempting to read data from IO port 0x60)
 
-1	Input buffer status (0 = empty, 1 = full)
-(must be clear before attempting to write data to IO port 0x60 or IO port 0x64)
+; 1	Input buffer status (0 = empty, 1 = full)
+; (must be clear before attempting to write data to IO port 0x60 or IO port 0x64)
 
-2	System Flag
-Meant to be cleared on reset and set by firmware (via. PS/2 Controller Configuration Byte) if the system passes self tests (POST)
+; 2	System Flag
+; Meant to be cleared on reset and set by firmware (via. PS/2 Controller Configuration Byte) if the system passes self tests (POST)
 
-3	Command/data (0 = data written to input buffer is data for PS/2 device, 1 = data written to input buffer is data for PS/2 controller command)
-4	Unknown (chipset specific)
-May be "keyboard lock" (more likely unused on modern systems)
+; 3	Command/data (0 = data written to input buffer is data for PS/2 device, 1 = data written to input buffer is data for PS/2 controller command)
+; 4	Unknown (chipset specific)
+; May be "keyboard lock" (more likely unused on modern systems)
 
-5	Unknown (chipset specific)
-May be "receive time-out" or "second PS/2 port output buffer full"
+; 5	Unknown (chipset specific)
+; May be "receive time-out" or "second PS/2 port output buffer full"
 
-6	Time-out error (0 = no error, 1 = time-out error)
-7	Parity error (0 = no error, 1 = parity error)
+; 6	Time-out error (0 = no error, 1 = time-out error)
+; 7	Parity error (0 = no error, 1 = parity error)
 
 
-PS/2 Controller Configuration Byte
-Commands 0x20 and 0x60 let you read and write the PS/2 Controller Configuration Byte. This configuration byte has the following format:
+; PS/2 Controller Configuration Byte
+; Commands 0x20 and 0x60 let you read and write the PS/2 Controller Configuration Byte. This configuration byte has the following format:
 
-Bit	Meaning
-0	First PS/2 port interrupt (1 = enabled, 0 = disabled)
-1	Second PS/2 port interrupt (1 = enabled, 0 = disabled, only if 2 PS/2 ports supported)
-2	System Flag (1 = system passed POST, 0 = your OS shouldn't be running)
-3	Should be zero
-4	First PS/2 port clock (1 = disabled, 0 = enabled)
-5	Second PS/2 port clock (1 = disabled, 0 = enabled, only if 2 PS/2 ports supported)
-6	First PS/2 port translation (1 = enabled, 0 = disabled)
-7	Must be zero
+; Bit	Meaning
+; 0	First PS/2 port interrupt (1 = enabled, 0 = disabled)
+; 1	Second PS/2 port interrupt (1 = enabled, 0 = disabled, only if 2 PS/2 ports supported)
+; 2	System Flag (1 = system passed POST, 0 = your OS shouldn't be running)
+; 3	Should be zero
+; 4	First PS/2 port clock (1 = disabled, 0 = enabled)
+; 5	Second PS/2 port clock (1 = disabled, 0 = enabled, only if 2 PS/2 ports supported)
+; 6	First PS/2 port translation (1 = enabled, 0 = disabled)
+; 7	Must be zero
+
+
+编写键盘驱动程序：
+    为了兼容第一套键盘扫描码对应的中断处理程序，不管键盘用的是何种键盘扫描码，当键盘将扫描码发送到 8042 后，都
+    由 8042 转换成第一套扫描码，这就是我们上一节中所说的 8042 的“处理”。因此，我们在键盘的中断处理程序中只处理第一套键盘扫描码就可以了。    
+
+    * 扫描码有 3 套，现在一般键盘中的 8048 芯片支持的是第二套扫描码。因此每当有击键发生时，8048
+    发给 8042 的都是第二套键盘扫描码。
+    * 8042 为了兼容性，将接收到的第二套键盘扫描码转换成第一套扫描码。8042 是按字节来处理的，
+    每处理一个字节的扫描码后，将其存储到自己的输出缓冲区寄存器。
+    * 然后向中断代理 8059A 发中断信号，这样我们的键盘中断处理程序通过读取 8042 的输出缓冲区
+    寄存器，会获得第一套键盘扫描码。
+    因此我们可以“假设”现在键盘用的就是第一套扫描键。
+
+
