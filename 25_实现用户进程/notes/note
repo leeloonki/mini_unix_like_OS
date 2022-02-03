@@ -1,0 +1,86 @@
+i386中任务切换时硬件提供了TSS来保存任务的上下文环境，用于使用tss进行任务切换较耗时，因此我们在实现任务切换时并不使用tss全部内容
+我们仅使用tss中0级栈。
+在任务切换时，若从低特权级到高特权级，则cpu从TSS中获取对应特权级的栈。
+
+我们的内核(在单核CPU上)默认只设置一个TSS(每个任务理应都有一个各自的tss)，在进行任务切换时，只将新任务的0级栈赋值给tss中0级栈属性。
+tr寄存器一直指向该tss。
+
+实现用户进程：
+    我们之前已经实现了内核多线程，因此我们这里通过在线程的基础上实现进程。
+
+用户进程实现原理：
+    我们将在线程基础上实现进程，而创建内核线程的过程为：
+        首先main.c调用struct task_struct* thread_start(char* name,int prio,thread_func function,void* func_arg);
+        该函数为线程申请PCB调用get_kernel_pages(1);
+        然后调用init_thread(thread,name,prio);初始化线程的PCB
+        再进行调用thread_create(thread,function,func_arg);创建线程运行栈(主要是将线程栈的返回地址置为kernel_thread，函数执行后ret到kernel_thread函数执行)
+        再kernel_thread中调用func();使线程执行流开始执行。
+            补充：
+                用户进程虚拟地址空间：
+                    每个进程都有单独的4G虚拟地址空间，我们需要为每个进程维护一个虚拟地址池，使用该地址池记录该进程的地址空间中哪些地址被分配或者未分配情况
+                内存：在分页机制下有了虚拟地址和物理地址，为有效对地址，我们创建虚拟内存池和物理内存池分别管理。为方便管理，我们设虚拟地址池和物理地址池中的地址单位4KB 1页
+                    针对物理内存：将整个物理内存分为两部分交由以下两内存池管理。
+                        内核物理内存池：1个
+                        用户物理内存池：1个
+                    虚拟内存：对所有任务，他们都有自己各自的4GB虚拟地址，因此对所有任务维护各自的虚拟地址池。
+                        内核虚拟地址池：1个
+                        任务虚拟地址池：n个
+                当系统运行时：申请内存时：
+                        内核申请内存：
+                            从内核虚拟地址池申请虚拟地址->再从内核物理内存池分配物理地址->在内核自己的页表中完成虚拟地址和物理地址的映射关系。
+                        用户任务进程申请内存时：
+                            从该任务自身维护的虚拟内存池申请虚拟地址->从用户物理内存池(所有用户进程共用)分配物理地址->在进程自己的页表中完成这两种地址的映射。
+    为维护该虚拟地址池我们将在struct task_struct中添加虚拟地址池成员：
+    struct virtual_addr{
+        struct bitmap vaddr_bitmap; //管理虚拟地址用到的位图
+        uint32_t vaddr_start;       //虚拟地址起始地址
+    };
+
+为进程创建页表和3特权级栈：
+    进程与线程的区别是：进程拥有独立的地址空间，因此创建进程时需要为每个进程都分配物理内存做页表；同时进程运行在3特权级我们还需要为进程创建3特权级栈。
+
+用户进程创建执行流程：
+    进程的运行是由时钟中断调用schedule，schedule从就绪队列调度一个执行。
+    创建进程时，CPU执行内核程序，位于0特权级，新创建的进程位于3特权级运行，而CPU不被允许从高特权级到低特权级跳转
+    为实现CPU从0特权级的内核程序跳转到用户进程执行，我们通过中断返回的方式实现。
+    通过iret指令将cp:ip指向用户进程的入口。
+
+    进程创建：
+    1.申请1页内存做进程PCB
+    2.初始化线程的PCB，构造进程的上下文环境
+    3.创建并初始化用户虚拟地址池位图
+    4.调用thread_create(user_prog);设置进程的”线程“栈，该栈保存进程上下文，构造成进程切换时的内核栈的样子
+    5.创建进程页表
+    6.将该进程添加到两队列中
+    7.添加schedule对 进程 的处理
+    进程执行：
+    1.时钟中断调用schedule
+    2.schedule更新当前的页表为就绪队列被调度的进程或线程的页表
+    3.执行switch_to函数，该函数执行完后内核栈栈顶被设置为kernel_thread地址，执行该函数
+    4.该函数调用 构建用户进程初始化上下文信息函数 start_process。
+    5.该函数调用intr_exit，该函数出栈将eip设置为用户进程入口entry-user_prog
+
+用户虚拟地址起始设置：
+    Linux系统中，用户空间起始地址从0x8048000开始
+    0x0到0x8048000-1保留，我们也将用户虚拟地址开始地址设置为0x8048000
+
+
+
+; interrupt.c中打开外部中断
+
+
+
+运行失败原因：
+    0.报错thread_ready thread_all_list: error: ‘thread_all_list’ undeclared (first use in this function)
+    原因：thread.c中定义了这两个链表，process.c引用时，包含了thread.h头文件,因此需要在thread.c中添加这两链表声明
+        extern struct list thread_ready_list;
+        extern struct list thread_all_list;
+    否则就会报错
+    1.前面章节测试键盘驱动时，在interrupt.c中static void pic_init()函数关闭了除了键盘之外的所有中断，因此运行时并没有出现进程或线程切换现象
+    因此这里我们应该开启pic外部中断。
+    2.改正1错误后，再次运行时 bochs出现 check_cs(0x0028):non-conforming code seg descriptor dpl != cpl,dpl=3,cpl=0错误
+    考虑到0x0028为gdt中第5项，而该项在tss中被添加，作为用户段描述符;
+      *((struct gdt_desc*)0xc0000928) = make_gdt_desc( (uint32_t*)(0), 0xfffff,GDT_CODE_ATTR_LOW_DPL3, GDT_ATTR_HIGH);
+    因此猜测该项对应的描述符属性初始化时rpl位设置出错，在global.h中检查定义该描述符确实出错了
+    #define SELECTOR_U_CODE ((5<<3) + ( TI_GDT <<2 ) + RPL3 ) 误将用户选择子RPL3输入为RPL0，再次改回RPL3即可正确运行
+    
