@@ -5,8 +5,8 @@
 #include "syscall.h"
 
 
-#define va_start(ap,last) ap=(va_list)&last     //format为char*类型，将其转化为为va_list获取format参数地址
-#define va_arg(ap,type) *((type*)(ap += 4))         //ap指向下一个参数，并返回其值
+#define va_start(ap,last) ap=(va_list)&last     //format为char*类型，是栈中指向一个字符串的指针变量，获取format参数地址，将其转化为为va_list
+#define va_arg(ap,type) *((type*)(ap += 4))     //ap指向栈中下一个参数，并返回其值
 #define va_end(ap) ap=NULL
 
 
