@@ -1,0 +1,170 @@
+根据Linux实现系统调用的实现，我们实现自己的系统调用。
+系统调用分为两部分：
+    1.暴露给用户进程的接口函数如c库函数，属于用户空间。3特权级
+    2.该系统功能对应的内核具体实现，属于内核空间。0特权级
+
+通常用户程序运行在用户态(3特权级)，其想使用内核提供的功能，需要进入内核，使CPU处于0特权级执行内核态下的功能函数。
+Linux通过int 0x80软中断实现，发生该中断时，查找0x80中断号对应的中断门描述符，
+
+                                80386 INTERRUPT GATE
+   31                23                15                7                0
+  +-----------------+-----------------+---+---+---------+-----+-----------+
+  |           OFFSET 31..16           | P |DPL|0 1 1 1 0|0 0 0|(NOT USED) |4
+  |-----------------------------------+---+---+---------+-----+-----------|
+  |             SELECTOR              |           OFFSET 15..0            |0
+  +-----------------+-----------------+-----------------+-----------------+
+
+对于中断描述符：
+OFFSET存放中断处理函数的偏移地址，即形如intr_xx_handler(void) 函数的偏移地址
+SELECTOR 为该中断函数所在段的段选择子，该选择子对应GDT表中某个GDT描述符，通过该选择子
+在GDT对应表项得到中断处理函数的段基址SEGMENT BASE ，由于中断处理函数属于内核代码段
+即对应GDT第1项 则SEGMENT SELECTOR 中INDEX为1，同时，在用户态下执行int 0x80指令CPU的CPL处于3
+特权级，为了能够访问上述中断门描述符，则中断门描述符的DPL应设置为3。
+    SEGMENT SELECTOR     
+ +-----------------------+-+---+
+ |         INDEX         | |RPL|
+ +-----------------------+-+---+  
+
+ 实现过程：用户程序执行int 0x80中断指令，查找IDT表对应0x80的描述符，获取中断处理程序的偏移地址，同时获取到
+ 中断描述符中的SELECTOR并在GDT表中获取该中断处理程序的基址，两者拼接得到最终线性地址。CPU得以执行中断处理
+ 程序，执行完成后，再通过中断返回返回到用户态。
+
+Linux系统调用实现思路：
+    1.使用中断门实现系统调用
+    2.在IDT表中安装0x80对应的中断描述符，在该描述符中注册系统调用的中断处理程序
+    3.建立系统调用子功能表syscall_table 利用eax作为子功能号，在该表中调用具体的系统功能子函数
+    4.使用宏实现用户空间系统调用的接口_syscall 
+    5.中断返回intr_exit
+
+实现系统调用：
+    1.添加0x80中断描述符 idt[0x80] DPL3,syscall_handler
+    2.实现系统调用用户接口 _syscall ,我们这里实现获取进程pid的系统调用getpid，该系统调用无参数。
+        我们在syscal.c中实现0-3个参数的系统调用接口函数 _syscall，参数分别被放在ebx ecx edx中，
+        子功能号和系统调用返回值在eax中。
+    3.增加0x80号中断处理函数 interrupt.c中extern uint32_t syscall_handler()，在kernel.s实现该函数
+    4.初始化系统调用(系统调用接口函数、初始化系统调用表)
+    5.添加系统调用getpid
+        总结系统调用步骤:
+            1.在syscall.h的enum SYSCALL_NR添加子功能号
+            2.在syscall.c添加用户接口
+            3.在syscall-init.c定义子功能处理函数并在syscall_table注册
+
+
+实现系统调用write并在此基础上实现printf库函数：
+    Ⅰ.实现系统调用write
+        1.在syscall.h中enum SYSCALL_NR添加子功能号 SYS_WRITE
+        2.在syscall.c中添加用户接口函数
+        3.在syscall-init.c中定义子功能处理函数sys_write并在syscall_table中注册
+    Ⅱ.实现printf
+    printf支持变长形参，原因是主调函数传入参数个数，并且主调函数回收栈空间，因此调用者可以回收站空间不会出现任何问题。
+    int printf(const char *format, ...);
+    printf()函数的第一个参数为 char* format
+    如：printf("The raw value: i=%d\n", i)，第一个参数为字符串，从第二个参数开始均为需要替换掉format中格式字符%d的值，对format中有几个%类型字符
+    printf就会在栈帧中寻找几个形参并替换掉format中%格式字符位置。
+    当调用printf函数时，主调函数在栈中压入printf的实参，printf执行时根据实参1format字符串根据%类型字符将栈中实参转化为对应类型，替换掉%类型字符。
+
+    对于支持可变参数的函数，其需要声明一个va_list的类型
+       
+       void va_start(va_list ap, last);
+       type va_arg(va_list ap, type);
+       void va_end(va_list ap);
+    va_start
+        参数ap用于指向栈中可变参数的地址，由于栈中每次压入4字节，但数据参数类型未知，因此va_list类型为void* 或者char*
+        参数last是形参中 可变参数列表 前的最后一个参数，可以认为是可变参数往前的的第一个参数，对于printf
+        last参数就是字符串format
+        该宏使指针ap指向last在栈中的地址
+    va_arg  
+        参数ap是指向可变参数的指针变量，参数type是可变参数类型，此宏用来获取栈中的下一个参数的地址并根据type获取值，返回其值
+    va_end
+        将指向可变参数的变量ap置为null，即清空栈中参数指针变量ap
+
+运行时：输出的main thread proc的pid理论来说应该从0x1开始，但是每次运行时输出的是其他乱七八糟的数据，经过分析，是boot.inc中定义的内核缓冲器起始地址出错
+KERNEL_BIN_BASE_ADDR equ 0x70000 ，读到的内存缓冲区地址 应是0x70000，出错时定义的该值为0x7000
+
+
+
+
+完善printf:实现 %c  %s  %d
+
+
+
+    A function may be called with a varying number of arguments of varying types.  The include file <stdarg.h> de‐
+       clares a type va_list and defines three macros for stepping through a list of arguments whose number and types
+       are not known to the called function.
+
+       The  called  function must declare an object of type va_list which is used by the macros va_start(), va_arg(),
+       and va_end().
+    va_start()
+       The va_start() macro initializes ap for subsequent use by va_arg() and va_end(), and must be called first.
+
+       The argument last is the name of the last argument before the variable argument list, that is, the last  argu‐
+       ment of which the calling function knows the type.
+
+       Because  the address of this argument may be used in the va_start() macro, it should not be declared as a reg‐
+       ister variable, or as a function or an array type.
+
+   va_arg()
+       The va_arg() macro expands to an expression that has the type and value of the next argument in the call.  The
+       argument  ap  is the va_list ap initialized by va_start().  Each call to va_arg() modifies ap so that the next
+       call returns the next argument.  The argument type is a type name specified so that the type of a  pointer  to
+       an object that has the specified type can be obtained simply by adding a * to type.
+
+       The  first use of the va_arg() macro after that of the va_start() macro returns the argument after last.  Suc‐
+       cessive invocations return the values of the remaining arguments.
+
+       If there is no next argument, or if type is not compatible with the type of the actual next argument (as  pro‐
+       moted according to the default argument promotions), random errors will occur.
+
+       If ap is passed to a function that uses va_arg(ap,type), then the value of ap is undefined after the return of
+       that function.
+
+   va_end()
+       Each invocation of va_start() must be matched by a corresponding invocation of va_end() in the same  function.
+       After  the  call  va_end(ap) the variable ap is undefined.  Multiple traversals of the list, each bracketed by
+       va_start() and va_end() are possible.  va_end() may be a macro or a function.
+
+
+
+
+
+
+                           DATA SEGMENT DESCRIPTOR
+
+  31                23                15                7               0
+ +-----------------+-+-+-+-+---------+-+-----+---------+-----------------+
+ |#################|#|#|#|A| LIMIT   |#|     |  TYPE   |#################|
+ |###BASE 31..24###|G|B|0|V| 19..16  |P| DPL |         |###BASE 23..16###| 4
+ |#################|#|#|#|L|         |#|     |1|0|E|W|A|#################|
+ |-----------------+-+-+-+-+---------+-+-----+-+-+-+-+-+-----------------|
+ |###################################|                                   |
+ |########SEGMENT BASE 15..0#########|        SEGMENT LIMIT 15..0        | 0
+ |###################################|                                   |
+ +-----------------+-----------------+-----------------+-----------------+
+
+                        EXECUTABLE SEGMENT DESCRIPTOR
+
+  31                23                15                7               0
+ +-----------------+-+-+-+-+---------+-+-----+---------+-----------------+
+ |#################|#|#|#|A| LIMIT   |#|     |  TYPE   |#################|
+ |###BASE 31..24###|G|D|0|V| 19..16  |P| DPL |         |###BASE 23..16###| 4
+ |#################|#|#|#|L|         |#|     |1|1|C|R|A|#################|
+ |-----------------+-+-+-+-+---------+-+-----+-+-+-+-+-+-----------------|
+ |###################################|                                   |
+ |########SEGMENT BASE 15..0#########|        SEGMENT LIMIT 15..0        | 0
+ |###################################|                                   |
+ +-----------------+-----------------+-----------------+-----------------+
+
+                         SYSTEM SEGMENT DESCRIPTOR
+
+  31                23                15                7               0
+ +-----------------+-+-+-+-+---------+-+-----+-+-------+-----------------+
+ |#################|#|#|#|A| LIMIT   |#|     | |       |#################|
+ |###BASE 31..24###|G|X|0|V| 19..16  |P| DPL |0| TYPE  |###BASE 23..16###| 4
+ |#################|#|#|#|L|         |#|     | |       |#################|
+ |-----------------+-+-+-+-+---------+-+-----+-+-------+-----------------|
+ |###################################|                                   |
+ |########SEGMENT BASE 15..0#########|       SEGMENT LIMIT 15..0         | 0
+ |###################################|                                   |
+ +-----------------+-----------------+-----------------+-----------------+
+
+
