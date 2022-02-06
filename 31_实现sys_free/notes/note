@@ -1,0 +1,129 @@
+malloc用于程序运行时动态从堆中申请内存。我们在memory.c中已经实现了能够分配以页框为单位的内存单元，为实现对小内存块的分配，我们需要实现对小内存块的管理。
+对于一页内存 4K，作为一个arena：将该整块内存划分为相同小的多个内存块。来实现对小内存的分配。
+
+对于小内存块的申请(<=1024B)：
+    arena为1个页
+    我们需要提前建立多种不同容量的内存块的arena，如以16B为粒度的arena、32B为粒度的arena ..64 128 256 512 1024
+    对于一页内存可以设置为7种arena，16 32 64 128 256 512 1024，页内存首部需要固定大小的数据结构存放该arena的信息如粒度信息、该arena含有的粒度内存的个数等，
+    当某种类型的arena的内存块分配完成后，可以在动态申请一页内存并设为arena，从该arena种分配该粒度的内存块。
+    对于某种粒度内存块，通过链表形式将空闲的同力度的小内存块通过链表进行组织，小内存块中包含一个链表结点成员，通过该链表成员将内存块组织成链表。
+    根据链表成员和成员地址可以得出该内存块的起始地址，该起始地址就是分配的堆区可用的地址。
+对于小内存块的申请(>1024B)：
+    arena由1个或多个页组成
+
+实现sys_malloc:
+    1.在task_struct中添加进程的内存块描述符struct mem_block_desc u_block_descs[DESC_CNT]
+    2.在process_execute初始化该数组
+    3.根据不同desc进行不同处理
+
+
+运行结果分析：
+    thread_a addr:0xc010200c
+    thread_b addr:0xc010204c
+
+    33 63 对应粒度为64，因此这两个线程分别申请了64B的内存，
+    arena为一页的起始地址，将线程a申请地址拆开 0xc0102000 + 0xc
+    0xc0102000为arena地址，0xc为arena元信息大小，返回的是arena中第一个64字节的首地址
+    0xc010204c -0xc010200c = 0x40 = 64 第二个64字节首地址即0xc010200c
+
+
+释放页内存:释放以页为单位的内存空间。
+
+回顾：分配页内存：memory.c中通过malloc_page分配页级单位内存
+        1.通过vaddr_get在虚拟内存池申请虚拟页
+        2.通过palloc 在物理内存池申请物理页
+        3.通过page_table_add 将1 2得到的页在页表中完成映射
+
+根据分配页内存过程，可以得到释放页内存的步骤：
+    释放页内存：mfree_page
+        1.在物理内存池释放物理页，相关函数pfree 对应分配时的palloc
+        2.在页表中去掉虚拟地址和物理地址的映射，原理是将虚拟地址对应的
+            pte的P(页存在位)置0，相关函数为page_table_pte_remove
+        3.在虚拟地址池释放虚拟地址，相关函数为vaddr_remove
+
+在创建页表时：
+    物理内存的最低1M归内存使用，1M向上的为页目录表和页表。
+    在loader.s中设置页目录项和页表项时，在物理内存0x100000处创建页目录表 1024 * 4b = 4K，页目录表结束地址为0x101000 -1
+    设置了虚拟地址0xc0000000起始的1M内核虚拟地址被映射在0x101000开始的页表中。
+    即loader.s加载时已经创建了页目录表和内核映射到的1个页表。
+    将3G开始的4M空间的页目录项映射到第一个页表，设置第一个页表,内核只在1M空间中,这里只设置页面前1/4 = 1M
+    即系统初始化时物理内存的1M + 4K(页目录表) + 4K(映射内核的第一个页表) 已经被使用
+    4K = 4*2^10 = 1^2^12 = 0x1000
+规划内存池时：  
+    供使用的物理内存池的起始地址为最低1M内存和预留的255(768-1023，且1023项指向了页目录表本身)个页表页 所占供256*4K = 1M +1M =2M
+    因此内核内存池起始地址kp_start为0x200000
+    kernel_pool.phy_addr_start = kp_start;
+    user_pool.phy_addr_start = up_start;
+
+mfree_page只能释放页框级别的内存块，对于小内存我们通过实现sys_free释放。
+sys_free是内存释放的统一接口，对于大内存处理称为释放，对于小粒度内存(arena)称为回收（即将arena分配出去的小粒度内存放到该粒度对应的内存块描述符链表free_list）
+
+
+运行结果分析：  
+    通过nm命令获取kernel.bin中线程k_thread_a的入口地址，c000155f T k_thread_a
+    线程a先于线程b运行，因此可以查看内存分配释放前后的位图
+    通过在bochs中 在线程a执行前和线程a b执行过程中 线程ab执行结束，查看位图的值的变化
+    位图存放的虚拟地址zai0xc009a000起始处
+
+    	1.执行线程a前设置断点，查看位图
+    	<bochs> lb 0xc000155f
+    	<bochs:3> x/3 0xc009a000
+[bochs]:
+0xc009a000 <bogus+       0>:	0x00000003	0x00000000	0x00000000
+00019375173i[XGUI ] Mouse capture off
+<bochs:4> c
+^C00049600003i[     ] Ctrl-C detected in signal handler.
+Next at t=49600003
+(0) [0x00000000155d] 0008:c000155d (unk. ctxt): jmp .-2 (0xc000155d)      ; ebfe
+00049600003i[XGUI ] Mouse capture off
+<bochs:5> x/3 0xc009a000
+[bochs]:
+0xc009a000 <bogus+       0>:	0xffffffff	0x0000007f	0x00000000
+00049600003i[XGUI ] Mouse capture off
+<bochs:6> c
+^C00084800003i[     ] Ctrl-C detected in signal handler.
+Next at t=84800003
+(0) [0x000000001911] 0008:c0001911 (unk. ctxt): jmp .-2 (0xc0001911)      ; ebfe
+00084800003i[XGUI ] Mouse capture off
+<bochs:7> x/3 0xc009a000
+[bochs]:
+0xc009a000 <bogus+       0>:	0x000007ff	0x00000000	0x00000000
+00084800003i[XGUI ] Mouse capture off
+
+nm -n -C build/kernel.bin 
+00000000 a RPL0
+00000000 a TI_GDT
+00000018 a SELECTOR_VIDEO
+c0001500 T main
+c000155f T k_thread_a
+c00016af T k_thread_b
+
+
+再次运行：内存释放前后位图个数一致
+
+<bochs:4> x/3 0xc009a000
+[bochs]:
+0xc009a000 <bogus+       0>:	0x00000003	0x00000000	0x00000000
+00019375177i[XGUI ] Mouse capture off
+<bochs:5> c
+^C00029919960i[     ] Ctrl-C detected in signal handler.
+Next at t=29919961
+(0) [0x0000000025e5] 0008:c00025e5 (unk. ctxt): lea edx, dword ptr ds:[eax+1] ; 8d5001
+00029919961i[XGUI ] Mouse capture off
+<bochs:6> x/3 0xc009a000
+[bochs]:
+0xc009a000 <bogus+       0>:	0xffffffff	0x003fffff	0x00000000
+00029919961i[XGUI ] Mouse capture off
+<bochs:7> c
+^C00148800003i[     ] Ctrl-C detected in signal handler.
+Next at t=148800003
+(0) [0x00000000155d] 0008:c000155d (unk. ctxt): jmp .-2 (0xc000155d)      ; ebfe
+00148800003i[XGUI ] Mouse capture off
+<bochs:8> x/3 0xc009a000
+[bochs]:
+0xc009a000 <bogus+       0>:	0x00000003	0x00000000	0x00000000
+00148800003i[XGUI ] Mouse capture off
+<bochs:9> 
+
+0x00000003
+0x00000003
