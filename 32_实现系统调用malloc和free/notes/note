@@ -1,0 +1,4 @@
+总结系统调用步骤:
+    1.在syscall.h的enum SYSCALL_NR添加子功能号
+    2.在syscall.c添加用户接口
+    3.在syscall-init.c定义子功能处理函数并在syscall_table注册
