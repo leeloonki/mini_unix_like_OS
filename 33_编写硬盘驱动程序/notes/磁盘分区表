@@ -1,0 +1,298 @@
+在编译内核时：
+		makefile 中 /bochs/bin/bximage -hd -mode="flat" -size=30 -q build/hd30M.img
+        已经创建了h30M.img该盘只充当了启动盘，仅用来存储内核，是个没有文件系统的裸盘，我们将创建一个新的硬盘，并将文件系统安装在该硬盘上。
+
+
+一、创建从盘：
+
+    创建hd80M.img作为从盘，在此盘安装文件系统。通过使用bochs提供的/bochs/bin/bximage命令创建。
+    /bochs/bin/bximage -hd -mode="flat" -size=80 -q ./hd80M.img
+
+    执行该命令后：
+        chunxi@ubuntu:/mnt/hgfs/code/33_编写硬盘驱动程序$ /bochs/bin/bximage -hd -mode="flat" -size=80 -q ./hd80M.img
+        ========================================================================
+                                        bximage
+                        Disk Image Creation Tool for Bochs
+                $Id: bximage.c 11315 2012-08-05 18:13:38Z vruppert $
+        ========================================================================
+
+        I will create a 'flat' hard disk image with
+        cyl=162
+        heads=16
+        sectors per track=63
+        total sectors=163296
+        total size=79.73 megabytes
+
+        Writing: [] Done.
+
+        I wrote 83607552 bytes to ./hd80M.img.
+
+        The following line should appear in your bochsrc:
+        ata0-master: type=disk, path="./hd80M.img", mode=flat, cylinders=162, heads=16, spt=63
+
+        我们将该硬盘作为从盘 因此The following line should appear in your bochsrc:
+        ata0-master: type=disk, path="./hd80M.img", mode=flat, cylinders=162, heads=16, spt=63
+        将ata0-master 改为 ata0-slave 
+        ata0-slave: type=disk, path="./hd80M.img", mode=flat, cylinders=162, heads=16, spt=63
+        并将上行配置文件添加到bochsrc中。
+        查看虚拟机安装硬盘的数量：
+        BIOS执行时，获取主板上硬盘的数量写入到物理内存0x475，我们通过查看物理内存0x475查看从盘是否安装(配置)成功。
+
+    添加从盘配置文件前:
+	<bochs:2> xp/b 0x475
+	[bochs]:
+	0x00000475 <bogus+       0>:	0x01
+	00074400003i[XGUI ] Mouse capture off
+	<bochs:3> 
+    添加从盘配置文件后:
+	<bochs:2> xp/b 0x475
+	[bochs]:
+	0x00000475 <bogus+       0>:	0x02
+	00062545211i[XGUI ] Mouse capture off
+	<bochs:3> 
+
+    地址0x475的值已从1->2说明从盘安装成功。
+
+二、创建磁盘分区表：
+    磁盘介绍：
+    盘片（Platter）：一块硬盘有若干盘片，每个盘片有可以存储数据的上、下两盘面（Side）。这些盘面堆叠在主轴上高速旋转，它们从上至下从“0”开始依次编号。
+    磁道（Track）：每个盘面被划分成许多同心圆，这些同心圆轨迹叫做磁道；磁道从外向内从0开始顺序编号。
+    扇区（Sector）：将一个盘面划分为若干内角相同的扇形，这样盘面上的每个磁道就被分为若干段圆弧，每段圆弧叫做一个扇区。每个扇区中的数据作为一个单元同时读出或写入。
+    读写磁头（Head）：每个盘面上一个读写磁头，盘面号即磁头号。所有磁头在磁头臂作用下同时内外移动，即任意时刻，所有磁头所处的磁道号是相同的。
+    柱面（Cylinder）：所有盘面上的同一磁道构成一个圆柱，称作柱面。数据的读/写按柱面从外向内进行，而不是按盘面进行。
+    定位时，首先确定柱面，再确定盘面，然后确定扇区。之后所有磁头一起定位到指定柱面，再旋转盘面使指定扇区位于磁头之下。
+    写数据时，当前柱面的当前磁道写满后，开始在当前柱面的下一个磁道写入，只有当前柱面全部写满后，才将磁头移动到下一个柱面。
+    在对硬盘分区时，各个分区也是以柱面为单位划分的，即从什么柱面到什么柱面；不存在一个柱面同属于多个分区。
+
+    分区：分区是由多个编号连续的柱面组成，分区大小：每柱面的扇区数* 柱面数。
+    对于我们创建的hd80M.img
+    chunxi@ubuntu:/mnt/hgfs/code/33_编写硬盘驱动程序$ ll hd80M.img 
+    -rwxrwxrwx 1 root root 83607552 Feb 10 23:14 hd80M.img*
+
+    柱面：cyl=162
+    磁头：heads=16
+    每磁道(柱面)扇区：sectors per track=63
+    总扇区：total sectors=163296
+    硬盘容量：total size=79.73 megabytes
+
+
+    柱面数 * 磁头数 = 硬盘容量/每磁道扇区/扇区大小。又磁盘以柱面分区，根据凑出合适的柱面数和磁头数即可。
+    
+    分区：
+        分区是逻辑划分磁盘的方式，人为将硬盘的柱面(磁道)划分为不同分组，每个分组称为一个单独的分区。
+        在硬盘的最开始一个扇区MBR扇区中含 分区表，其中分区描述符用于描述本硬盘的分区。
+        分区表含4个表项，因此硬盘支持4个分区。
+        
+        对于MBR扇区：
+                Offset	Size (bytes)	Description
+        0x000	4401	MBR Bootstrap (flat binary executable code)
+        0x1B8	4	Optional "Unique Disk ID / Signature"2
+        0x1BC	2	Optional, reserved 0x00003
+        0x1BE	16	First partition table entry
+        0x1CE	16	Second partition table entry
+        0x1DE	16	Third partition table entry
+        0x1EE	16	Fourth partition table entry
+        0x1FE	2	(0x55, 0xAA) "Valid bootsector" signature bytes
+        分区描述符结构
+                Partition table entry format
+        Offset1	Size (bytes)	Description
+        0x00	1	Drive attributes (bit 7 set = active or bootable)
+        0x01	3	CHS Address of partition start
+        0x04	1	Partition type
+        0x05	3	CHS address of last partition sector
+        0x08	4	LBA of partition start
+        0x0C	4	Number of sectors in partition
+
+        Element (offset)	Size	Description
+        0	byte	Boot indicator bit flag: 0 = no, 0x80 = bootable (or "active")
+        1	byte	Starting head
+        2	6 bits	Starting sector (Bits 6-7 are the upper two bits for the Starting Cylinder field.)
+        3	10 bits	Starting Cylinder
+        4	byte	System ID
+        5	byte	Ending Head
+        6	6 bits	Ending Sector (Bits 6-7 are the upper two bits for the ending cylinder field)
+        7	10 bits	Ending Cylinder
+        8	uint32_t	Relative Sector (to start of partition -- also equals the partition‘s starting LBA value)
+        12	uint32_t	Total Sectors in partition
+
+        为了支持更多分区，突破四个分区限制，在分区描述符中 0x04	1 Partition type 该属性用于表示该分区是否是扩展分区：表示
+        该分区是否可以被划分为更多的子分区(逻辑分区)。每个硬盘最多一个扩展分区，扩展分区是可选的。
+        总结：分区表含4表项，标识4个分区，若某个分区被标示为扩展分区，其余的都是主分区；若无扩展分区则四个分区都是主扩展分区。
+    
+    使用fdisk对hd80M.img进行分区：
+        Disk ./hd80M.img: 79.8 MiB, 83607552 bytes, 163296 sectors
+        Units: sectors of 1 * 512 = 512 bytes
+        Sector size (logical/physical): 512 bytes / 512 bytes
+        I/O size (minimum/optimal): 512 bytes / 512 bytes
+        Disklabel type: dos
+        Disk identifier: 0x88c7de43
+
+        Device       Boot  Start    End Sectors  Size Id Type
+        ./hd80M.img1        2048  43007   40960   20M 83 Linux
+        ./hd80M.img4       43008 163295  120288 58.8M  5 Extended
+        ./hd80M.img5       45056  65535   20480   10M 83 Linux
+        ./hd80M.img6       67584  98303   30720   15M 83 Linux
+        ./hd80M.img7      100352 141311   40960   20M 83 Linux
+        ./hd80M.img8      143360 163295   19936  9.8M 83 Linux
+
+    将./hd80M.img5 - ./hd80M.img8 Type 设置为Known 我们设置0x66，已知文件类型无对应文件类型
+
+    Command (m for help): l
+
+    0  Empty           24  NEC DOS         81  Minix / old Lin bf  Solaris        
+    1  FAT12           27  Hidden NTFS Win 82  Linux swap / So c1  DRDOS/sec (FAT-
+    2  XENIX root      39  Plan 9          83  Linux           c4  DRDOS/sec (FAT-
+    3  XENIX usr       3c  PartitionMagic  84  OS/2 hidden or  c6  DRDOS/sec (FAT-
+    4  FAT16 <32M      40  Venix 80286     85  Linux extended  c7  Syrinx
+    5  Extended        41  PPC PReP Boot   86  NTFS volume set da  Non-FS data
+    6  FAT16           42  SFS             87  NTFS volume set db  CP/M / CTOS / .
+    7  HPFS/NTFS/exFAT 4d  QNX4.x          88  Linux plaintext de  Dell Utility
+    8  AIX             4e  QNX4.x 2nd part 8e  Linux LVM       df  BootIt
+    9  AIX bootable    4f  QNX4.x 3rd part 93  Amoeba          e1  DOS access
+    a  OS/2 Boot Manag 50  OnTrack DM      94  Amoeba BBT      e3  DOS R/O
+    b  W95 FAT32       51  OnTrack DM6 Aux 9f  BSD/OS          e4  SpeedStor
+    c  W95 FAT32 (LBA) 52  CP/M            a0  IBM Thinkpad hi ea  Rufus alignment
+    e  W95 FAT16 (LBA) 53  OnTrack DM6 Aux a5  FreeBSD         eb  BeOS fs
+    f  W95 Ext’d (LBA) 54  OnTrackDM6      a6  OpenBSD         ee  GPT
+    10  OPUS            55  EZ-Drive        a7  NeXTSTEP        ef  EFI (FAT-12/16/
+    11  Hidden FAT12    56  Golden Bow      a8  Darwin UFS      f0  Linux/PA-RISC b
+    12  Compaq diagnost 5c  Priam Edisk     a9  NetBSD          f1  SpeedStor
+    14  Hidden FAT16 <3 61  SpeedStor       ab  Darwin boot     f4  SpeedStor
+    16  Hidden FAT16    63  GNU HURD or Sys af  HFS / HFS+      f2  DOS secondary
+    17  Hidden HPFS/NTF 64  Novell Netware  b7  BSDI fs         fb  VMware VMFS
+    18  AST SmartSleep  65  Novell Netware  b8  BSDI swap       fc  VMware VMKCORE
+    1b  Hidden W95 FAT3 70  DiskSecure Mult bb  Boot Wizard hid fd  Linux raid auto
+    1c  Hidden W95 FAT3 75  PC/IX           bc  Acronis FAT32 L fe  LANstep
+    1e  Hidden W95 FAT1 80  Old Minix       be  Solaris boot    ff  BBT
+
+    修改完成后
+    Command (m for help): p
+    Disk ./hd80M.img: 79.8 MiB, 83607552 bytes, 163296 sectors
+    Units: sectors of 1 * 512 = 512 bytes
+    Sector size (logical/physical): 512 bytes / 512 bytes
+    I/O size (minimum/optimal): 512 bytes / 512 bytes
+    Disklabel type: dos
+    Disk identifier: 0x88c7de43
+
+    Device       Boot  Start    End Sectors  Size Id Type
+    ./hd80M.img1        2048  43007   40960   20M 83 Linux
+    ./hd80M.img4       43008 163295  120288 58.8M  5 Extended
+    ./hd80M.img5       45056  65535   20480   10M 66 unknown
+    ./hd80M.img6       67584  98303   30720   15M 66 unknown
+    ./hd80M.img7      100352 141311   40960   20M 66 unknown
+    ./hd80M.img8      143360 163295   19936  9.8M 66 unknown
+
+    键入w将分区表写入硬盘
+    Command (m for help): w
+    The partition table has been altered.
+    Syncing disks.
+
+三、磁盘分区表浅析：
+    在硬盘的最开始一个扇区MBR扇区中含 分区表，其中分区描述符用于描述本硬盘的分区。
+    分区表是由分区工具如fdisk创建，独立于操作系统。对于操作系统其根据分区表信息对硬盘进行分区管理。
+    磁盘分区表位于MBR扇区。
+    MBR扇区format：
+    Offset	Size (bytes)	Description
+    0x000	440	MBR Bootstrap (flat binary executable code)
+    0x1B8	4	Optional "Unique Disk ID / Signature"2
+    0x1BC	2	Optional, reserved 0x00003
+    0x1BE	16	First partition table entry
+    0x1CE	16	Second partition table entry
+    0x1DE	16	Third partition table entry
+    0x1EE	16	Fourth partition table entry
+    0x1FE	2	(0x55, 0xAA) "Valid bootsector" signature bytes
+    
+    分区要占用完整的柱面，一个磁道不能被多个分区共享，第0磁道被MBR占用(MBR不属于任何分区)，
+    因此分区起始地址要偏移磁道的大小，偏移后分区的起始地址是柱面的整数倍(分区工具规划)，
+    对于MBR到分区的中间那些扇区将不再利用。对于我们创建创建的分区：
+    Device       Boot  Start    End Sectors  Size Id Type
+    ./hd80M.img1        2048  43007   40960   20M 83 Linux
+    ./hd80M.img4       43008 163295  120288 58.8M  5 Extended
+    ./hd80M.img5       45056  65535   20480   10M 66 unknown
+    ./hd80M.img6       67584  98303   30720   15M 66 unknown
+    ./hd80M.img7      100352 141311   40960   20M 66 unknown
+    ./hd80M.img8      143360 163295   19936  9.8M 66 unknown
+    第一个分区hd80M.img1 起始扇区为2048 因此MBR到2048共2047个分区不再被利用 大约2048 * 512B = 1MB
+    随着硬盘容量变大，为突破4个分区(分区描述符表4表项限制)，发明了扩展分区。
+    4个分区中的任意一个可以作为扩展分区，将其划分为多个子扩展分区，每个子扩展分区在逻辑上相当于硬盘。
+    即每个子扩展分区也有“MBR”、分区表。通过链表形式，将子扩展分区分区表链接一起。
+    对于每个子扩展分区：
+    扩展分区0号扇区：EBR，与MBR结构类似，含均为引导扇区，均含分区表。
+    MBR到逻辑分区的中间那些不再利用的扇区 1MB。
+    逻辑分区：存储数据
+
+    EBR中的分区表也有4项：
+        表项1用于指向本子扩展分区的逻辑分区的偏移扇区
+        表项2用于指向下一子扩展分区的EBR分区的偏移扇区（通过此种链表形式将子扩展分区链接）
+        表项3、4不被使用
+
+    对于子扩展分区，其结构与整个硬盘结构类似，最开始的扇区为引导扇区，中间为空闲部分扇区，最后的大片扇区为数据存储的分区。
+    分区描述符属性0x08	4	LBA of partition start 表示分区起始偏移地址。
+    对于每个子扩展分区的逻辑扇区：
+        偏移为相对于子扩展分区起始扇区
+    对于子扩展分区：
+        描述符中LBA的偏移为相对于总扩展分区的起始扇区
+    对于主分区和总扩展分区，这两类分区对应的描述符在MBR，LBA偏移扇区为0
+
+    分区描述符属性：
+            Partition table entry format
+        Offset1	Size (bytes)	Description
+        0x00	1	Drive attributes (bit 7 set = active or bootable) 
+        0x01	3	CHS Address of partition start
+        0x04	1	Partition type
+        0x05	3	CHS address of last partition sector
+        0x08	4	LBA of partition start
+        0x0C	4	Number of sectors in partition
+
+    对于hd80M.img:
+        其 MBR 分区表：硬盘第0x1BE字节
+        00 00 21 02 83 0A 2A 2A 00 08 00 00 00 A0 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+        00 0A 2B 2A 05 0F 3F A1 00 A8 00 00 E0 D5 01 00 55 AA
+        
+        分区表入口地址位于偏移MBR 0x1BE 地址处，该表共4个表项，每个表项16字
+        ./hd80M.img1        2048  43007   40960   20M 83 Linux
+        ./hd80M.img4       43008 163295  120288 58.8M  5 Extended
+        对于MBR分区描述符表：
+        分区        分区类型     LBA偏移扇区        扇区数        绝对LBA扇区
+        hd80M.img1  0x83        0x00000800      0x0000A000      0x00000800
+        hd80M.img4  0x05        0x0000A800      0x0001D5E0      0x0000A800
+
+        对于扩展分区，总扩展分区(hd80M.img4)EBR扇区0x0000A800(起始字节为：0x0000A800*512 = 22020096)
+        其 MBR 分区表：0x0000A800*512 + 0X1BE
+        00 0B 0C 2C 66 00 10 41 00 08 00 00 00 50 00 00 
+        00 00 11 41 05 08 18 61 00 58 00 00 00 80 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 55 AA
+        
+        ; 绝对LBA扇区 = 描述符LBA偏移扇区 + 总(扩展)分区起始扇区
+        ①若为主分区，总分区起始扇区为0
+        ①若为扩展分区，总扩展分区起始扇区为0x0000A800
+        故绝对扇区：
+        ; 对于子扩展分区的逻辑分区：描述符中LBA的偏移 + 相对于当前子扩展分区EBR扇区
+        ; 对于子扩展分区EBR扇区：   描述符中LBA的偏移 + 相对于总扩展分区的起始扇区
+        描述符表(22020096 + 1BE(446) )：
+        分区                分区类型     LBA偏移扇区        扇区数        绝对LBA扇区
+        hd80M.img5逻辑分区  0x83        0x00000800      0x00005000      0x0000A800 + 0x00000800 = 0x0000B000
+        下一子扩展分区EBR   0x05        0x00005800      0x00008000      0x0000A800 + 0x00005800
+
+
+        逻辑分区中EBR 分区描述符第二表项为下一扩展分区EBR扇区，即子扩展分区hd80M.img6
+        hd80M.img6的EBR起始字节为   0x0000A800 + 0x00005800
+        hd80M.img6分区表起始字节为  (0x0000A800 + 0x00005800 ) * 512 + 446
+        00 00 31 43 66 08 18 61 00 08 00 00 00 78 00 00 
+        00 08 19 61 05 03 03 8C 00 D8 00 00 00 A8 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 55 AA
+
+        分区                分区类型     LBA偏移扇区        扇区数        绝对LBA扇区
+        hd80M.img6逻辑分区  0x83        0x00000800      0x00007800     0x0000A800 + 0x00005800 + 0x00000800
+        下一子扩展分区EBR   0x05        0x0000D800      0x0000A800      0x0000A800 + 0x000D800
+
+        同理根据以上方法可以获取到所有扩展分区。
+
+        每个分区都是一个文件系统
+        分区的第一扇区为OBR引导块，其后为超级块 ……
+
+

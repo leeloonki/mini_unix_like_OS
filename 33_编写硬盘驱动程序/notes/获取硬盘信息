@@ -1,0 +1,28 @@
+获取硬盘信息、扫描分区表
+
+// 硬盘操作命令指令
+#define CMD_IDENTIFY    0xEC    //identify指令
+ATA_CMD_IDENTIFY return a buffer of 512 bytes called the identification space; 
+the following definitions are used to read information from the identification space.
+
+identif指令返回结果以字为单位，因此我们需要对读入的数据进行相邻两字节交换位置
+
+#define ATA_IDENT_DEVICETYPE   0
+#define ATA_IDENT_CYLINDERS    2
+#define ATA_IDENT_HEADS        6
+#define ATA_IDENT_SECTORS      12
+#define ATA_IDENT_SERIAL       20          
+#define ATA_IDENT_MODEL        54
+#define ATA_IDENT_CAPABILITIES 98
+#define ATA_IDENT_FIELDVALID   106
+#define ATA_IDENT_MAX_LBA      120
+#define ATA_IDENT_COMMANDSETS  164
+#define ATA_IDENT_MAX_LBA_EXT  200
+
+字偏移          描述            长度(byte)
+10-19          硬盘序列号       20
+27-46          硬盘型号         40 
+60-61          可使用的扇区数    2
+
+一、通过identify命令获取硬盘信息
+    实现函数identify_disk()

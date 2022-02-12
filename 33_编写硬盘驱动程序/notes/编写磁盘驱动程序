@@ -1,0 +1,105 @@
+驱动程序：对硬件接口的封装
+
+    IDE：IDE是一种计算机系统接口，主要用于硬盘和CD-ROM。
+    一般每个主板上有两个IDE接口（IDE1和IDE2）也称为ATA通道。
+    每个接口(通道)可以分别接两个硬盘或者两个光驱。
+    ATA0：
+        Primary Master Drive.
+        Primary Slave Drive.
+    ATA1：
+        Secondary Master Drive.
+        Secondary Slave Drive.
+    我们在bochsrc中配置了两块硬盘 ata0-master、ata0-slave 在通道0上安装了两个硬盘。
+
+    每个通道可安装两块硬盘，分别为Master Drive(主盘) Slave Drive()，每个通道使用一个8259外部中断引脚。
+    我们在对主盘或从盘操作时，通过向通道硬盘控制器(IDE Controller)的device寄存器指令访问主盘或从盘。
+
+    对于主板上的两个IDE接口，Primary ATA(ATA0) 使用IRQ14 Secondary ATA(ATA1) 使用IRQ15
+    IRQ14 即从片8259的引脚6 IRQ15 从片8259引脚7 
+
+
+        IRQ	Description
+    0	Programmable Interrupt Timer Interrupt
+    1	Keyboard Interrupt
+    2	Cascade (used internally by the two PICs. never raised)
+    3	COM2 (if enabled)
+    4	COM1 (if enabled)
+    5	LPT2 (if enabled)
+    6	Floppy Disk
+    7	LPT1 / Unreliable "spurious" interrupt (usually)
+    8	CMOS real-time clock (if enabled)
+    9	Free for peripherals / legacy SCSI / NIC
+    10	Free for peripherals / SCSI / NIC
+    11	Free for peripherals / SCSI / NIC
+    12	PS2 Mouse
+    13	FPU / Coprocessor / Inter-processor
+    14	Primary ATA Hard Disk
+    15	Secondary ATA Hard Disk
+
+
+    Current disk controller chips almost always support two ATA buses per chip. 
+    There is a standardized set of IO ports to control the disks on the buses. 
+    The first two buses are called the Primary and Secondary ATA bus, 
+    and are almost always controlled by IO ports 0x1F0 through 0x1F7, 
+    and 0x170 through 0x177, respectively (unless you change it). 
+    The associated Device Control Registers/Alternate Status ports are IO ports 0x3F6, 
+    and 0x376, respectively. The standard IRQ for the Primary bus is IRQ14, and IRQ15 
+    for the Secondary bus.
+
+    通道起始端口号是通道基址
+    Primary通道(ATA0)：
+        IO ports： 0x1F0 - 0x1F7
+        Control Registers/Alternate Status ports：0x3F6
+    Secondary通道(ATA1)：
+        IO ports： 0x170 - 0x177
+        Control Registers/Alternate Status ports：0x376
+    0x3F6 - 0x1F0 = 0x206
+    0x376 - 0x170 = 0x206
+                                                                                    Param. size LBA28/LBA48
+    2	R/W	Sector Count Register	Number of sectors to read/write (0 is a special value).	8-bit / 16-bit
+    3	R/W	Sector Number Register (LBAlo)	This is CHS / LBA28 / LBA48 specific.	8-bit / 16-bit
+    4	R/W	Cylinder Low Register / (LBAmid)	Partial Disk Sector address.	8-bit / 16-bit
+    5	R/W	Cylinder High Register / (LBAhi)	Partial Disk Sector address.	8-bit / 16-bit
+    6	R/W	Drive / Head Register	Used to select a drive and/or head. Supports extra address/flag bits.	8-bit / 8-bit
+    7	R	Status Register	Used to read the current status.	8-bit / 8-bit
+    7	W	Command Register	Used to send ATA commands to the device.	8-bit / 8-bit
+    An example of a 28 bit LBA PIO mode read on the Primary bus:
+
+    Send 0xE0 for the "master" or 0xF0 for the "slave", ORed with the highest 4 bits of the LBA to port 0x1F6: outb(0x1F6, 0xE0 | (slavebit << 4) | ((LBA >> 24) & 0x0F))
+    Send a NULL byte to port 0x1F1, if you like (it is ignored and wastes lots of CPU time): outb(0x1F1, 0x00)
+    Send the sectorcount to port 0x1F2: outb(0x1F2, (unsigned char) count)
+    Send the low 8 bits of the LBA to port 0x1F3: outb(0x1F3, (unsigned char) LBA))
+    Send the next 8 bits of the LBA to port 0x1F4: outb(0x1F4, (unsigned char)(LBA >> 8))
+    Send the next 8 bits of the LBA to port 0x1F5: outb(0x1F5, (unsigned char)(LBA >> 16))
+    Send the "READ SECTORS" command (0x20) to port 0x1F7: outb(0x1F7, 0x20)
+    Wait for an IRQ or poll.
+    Transfer 256 16-bit values, a uint16_t at a time, into your buffer from I/O port 0x1F0. (In assembler, REP INSW works well for this.)
+    Then loop back to waiting for the next IRQ (or poll again -- see next note) for each successive sector.
+
+    硬盘读取步骤：
+    1.选择通道，向该通道的Sector Count Register 写入待操作的扇区数
+    2.向该通道的三个LBA寄存器(偏移通道基址base 3-5的三个寄存器)写入扇区起始地址的低24位。
+    3.向Drive / Head Register写入LBA地址的24-27位，并选择master slave 主盘或从盘
+    4.向该通道的Command Register(base+7)写入操作命令
+    5.读取该通道Status Register(base+7)判断硬盘是否工作完成
+    6.将硬盘数据读出
+
+一、硬盘初始化
+    1.添加ATA0 ATA1的中断入口地址(程序)   kernel.s中
+    2.打开8259主片IRQ2(级联) 和从片IRQ6、IRQ7(ATA)
+    3.定义硬盘相关数据结构
+    4.定义通道各寄存器端口号、寄存器相应位
+    补充：为方便内核中使用printf函数，我们这里实现在内核中的printk函数
+    5.ide_init()初始化硬盘数据结构  
+
+二、完善硬盘驱动程序
+    Ⅰ.读取硬盘步骤：
+        1.选择操作的硬盘
+        2.向通道的Sector Number Register 写入待读取的扇区数和起始扇区号
+        3.向command寄存器写执行的命令
+        4.检测硬盘状态是否可读(硬盘操作是否完成)
+        5.将数据从硬盘缓冲区读出
+        补充：实现休眠函数mtime_sleep() 实现thread_yield()
+    Ⅱ.实现ide_read  ide_write函数
+    Ⅲ.实现硬盘中断处理程序
+    
