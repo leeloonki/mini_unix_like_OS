@@ -1,3 +1,12 @@
+/*
+ * @Author: leeloonki
+ * @Bilibili: 李景芳_
+ * @Date: 2022-02-14 18:15:03
+ * @LastEditTime: 2022-02-15 11:24:20
+ * @LastEditors: leeloonki
+ * @Description: 
+ * @FilePath: \code\34_创建文件系统\lib\kernel\list.c
+ */
 #include "list.h"
 #include "interrupt.h"
 // 初始化双向链表
@@ -75,14 +84,15 @@ uint32_t list_len(struct list* plist){
 
 // 遍历链表中所有元素，判断是否有符合条件的元素
 // 回调函数func进行判断，符合条件返回元素指针
+// 遍历plist中的所有元素，直到func(pelem,arg)返回true 或者链表元素全部遍历结束
 struct list_elem* list_traversal(struct list* plist,function func,int arg){
     struct list_elem* pelem = plist->head.next;
     if(list_empty(plist)){
         return NULL;
     }
     while(pelem!=&plist->tail){
-        if(func(pelem,arg)){
-            return pelem;
+        if(func(pelem,arg)){//arg作为回调函数参数，
+            return pelem;   //如果回调函数返回true，则本行返回，不再遍历。
         }
         pelem = pelem->next;
     }

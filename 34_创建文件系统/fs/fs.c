@@ -8,6 +8,11 @@
 #include "memory.h"
 #include "string.h"
 #include "debug.h"
+#include "list.h"
+
+struct partition* cur_part;//操作分区
+
+
 // 格式化分区：初始化分区元信息，创建文件系统
 static void partition_format(struct partition* part){
     uint32_t boot_block_block =1;      //引导块1扇区
@@ -112,6 +117,57 @@ static void partition_format(struct partition* part){
     sys_free(buf);   
 }
 
+
+
+// 在分区链表(ide_init初始化时读取硬盘分区表并在在内存更新struct list partition_list)中找到名为arg的硬盘分区挂载之(再次读取分区获取元信息)
+// 形参pelem 分区指针；arg分区名
+static bool mount_partition(struct list_elem* pelem,int arg){
+    char* part_name = (char*)arg;
+    // part为partition_list某链表项指针
+    struct partition* part = elem2entry(struct partition,part_tag,pelem);//根据pelem地址和结构体struct partition成员part_tag距结构体本身偏移地址得出结构体地址
+    if(!strcmp(part->name,part_name)){
+
+        // 1. 读取硬盘超级块到内存
+        cur_part = part;                        //cur_part为partition_list某链表项指针
+        struct disk* hd  = cur_part->my_disk;   //分区所属硬盘，做读写硬盘的参数使用
+        struct super_block* sb_buf = (struct super_block*)sys_malloc(sizeof(struct super_block));//缓冲区，缓存硬盘读入的超级块
+        cur_part->sb = (struct super_block*)sys_malloc(sizeof(struct super_block));
+        if(cur_part->sb == NULL){
+            PANIC("malloc memory failed!");
+        }
+        memset(sb_buf,0,BLOCK_SIZE);
+        // 将硬盘分区超级块读入内存sb_buf缓冲区
+        ide_read(hd,cur_part->start_lba+1,sb_buf,1);//一扇区 = 1block，超级块位于分区lba+1所在块(扇区)
+
+        // 2. 读取硬盘块位图
+
+        // 内存中 块位图起始地址
+        cur_part->block_bitmap.bits = (uint8_t*)sys_malloc(sb_buf->block_bitmap_block * BLOCK_SIZE);//块位图每位代表1块
+        if(cur_part->block_bitmap.bits == NULL){
+            PANIC("malloc memory failed!");
+        }
+        ide_read(hd,sb_buf->block_bitmap_lba,cur_part->block_bitmap.bits,sb_buf->block_bitmap_block);
+        // 块位图字节数
+        cur_part->block_bitmap.btmp_bytes_len = sb_buf->block_bitmap_block * BLOCK_SIZE;
+
+        // 3. 读取硬盘inode位图
+
+        // 内存inode位图起始地址
+        cur_part->inode_bitmap.bits = (uint8_t*)sys_malloc(sb_buf->inode_bitmap_block * BLOCK_SIZE);
+        if(cur_part->inode_bitmap.bits == NULL){
+            PANIC("malloc memory failed!");
+        }
+        ide_read(hd,sb_buf->inode_bitmap_lba,cur_part->inode_bitmap.bits,sb_buf->inode_bitmap_block);
+        // inode位图字节数
+        cur_part->inode_bitmap.btmp_bytes_len = sb_buf->inode_bitmap_block*BLOCK_SIZE;
+        
+        list_init(&cur_part->open_inodes);//挂载分区时，分区打开的文件(inode)为空
+        printk("mount %s done!\n",part->name);
+        return true;//停止list_travesal遍历
+    }
+    return false;//分区名不匹配则继续遍历下一分区，需返回false
+}
+
 // 在硬盘上搜索文件系统，若没有则格式化分区创建文件系统
 void filesys_init(){
     // 通道号、主从设备盘、分区索引
@@ -159,4 +215,13 @@ void filesys_init(){
         channel_no++;       //下一通道
     }
     sys_free(sb_buf);       //释放超级块缓存
+
+    // 挂载分区
+    // ide_init时，struct list partition_list变量已将扫描的所有分区链接，我们对该链表中所有分区进行遍历，挂在所有分区
+
+    // 遍历的第一个分区为分区链表partition_list第一个元素
+    
+    char default_part[16] = "sdb1";
+    //默认挂载的分区，我们默认挂载"sdb1"，即./hd80M.img1
+    list_traversal(&partition_list,mount_partition,(int)default_part);//mount_partition()做回调函数,返回值必须为bool类型
 }
