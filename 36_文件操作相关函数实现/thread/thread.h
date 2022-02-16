@@ -9,7 +9,7 @@
 
 typedef int16_t pid_t;
 
-#define MAX_FILES_OPEN_PER_PROC 8   //每个文件最多打开8个文件
+#define MAX_FILES_OPEN_PER_PROC 8   //每个进程最多打开8个文件
 
 // 进程(线程)状态
 enum task_status{

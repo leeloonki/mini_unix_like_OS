@@ -7,6 +7,7 @@
 #include "sync.h"
 #include "global.h"
 #include "list.h"
+#include "super_block.h"
 // 分区结构:描述一个分区
 struct partition{
     uint32_t start_lba;         //起始扇区
