@@ -18,7 +18,7 @@ $(BUILD_DIR)/bitmap.o $(BUILD_DIR)/memory.o $(BUILD_DIR)/thread.o $(BUILD_DIR)/l
 $(BUILD_DIR)/switch.o $(BUILD_DIR)/sync.o $(BUILD_DIR)/console.o $(BUILD_DIR)/keyboard.o \
 $(BUILD_DIR)/ioqueue.o $(BUILD_DIR)/tss.o $(BUILD_DIR)/process.o $(BUILD_DIR)/syscall.o \
 $(BUILD_DIR)/syscall-init.o $(BUILD_DIR)/stdio.o $(BUILD_DIR)/stdio-kernel.o $(BUILD_DIR)/ide.o \
-$(BUILD_DIR)/fs.o $(BUILD_DIR)/inode.o $(BUILD_DIR)/file.o
+$(BUILD_DIR)/fs.o $(BUILD_DIR)/inode.o $(BUILD_DIR)/file.o $(BUILD_DIR)/dir.o
 
 
 #---------------------------------  编译内核汇编文件 ---------------------------
@@ -99,6 +99,9 @@ $(BUILD_DIR)/inode.o: fs/inode.c fs/inode.h device/ide.h lib/stdint.h kernel/glo
 		$(CC) $(CFLAGS) $< -o $@
 $(BUILD_DIR)/file.o: fs/file.c fs/file.h lib/stdint.h kernel/global.h lib/kernel/stdio-kernel.h \
 		thread/thread.h fs/fs.h
+		$(CC) $(CFLAGS) $< -o $@
+$(BUILD_DIR)/dir.o: fs/dir.c fs/dir.h fs/inode.h fs/super_block.h kernel/memory.h kernel/global.h \
+		lib/kernel/stdio-kernel.h lib/string.h kernel/debug.h fs/file.h
 		$(CC) $(CFLAGS) $< -o $@
 
 #---------------------------------  编译 mbr.bin loader.bin --------------------

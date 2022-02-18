@@ -138,7 +138,7 @@ void inode_close(struct inode* inode){
         struct task_struct* cur = running_thread();
         uint32_t* cur_pagedir_bak = cur->pgdir;         //备份当前进程线程的pgdir值，待分配完物理内存后再恢复
         cur->pgdir=NULL;                               //保证了在物理内核内存池释放内存
-        sys_free(inode);                                //释放内核堆
+        sys_free(inode);                                //释放inode所占内核堆空间
         cur->pgdir = cur_pagedir_bak;
     }
     intr_set_status(old_status);
