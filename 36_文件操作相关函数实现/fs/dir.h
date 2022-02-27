@@ -4,7 +4,8 @@
 #include "stdint.h"
 #include "fs.h"
 #include "ide.h"
-
+#include "file.h"
+#include "inode.h"
 #define MAX_FILE_NAME_LEN   16  //最大文件名长度
 
 // 目录也是文件，在硬盘分区上由数据块构成，这些数据块由目录项组成，
@@ -22,7 +23,7 @@ struct dir_entry{
     uint32_t i_no;              //目录项的inode号
     enum file_types f_type;     //文件类型,定义在fs.h
 };
-
+extern struct dir root_dir;
 void open_root_dir(struct partition* part);
 struct dir* dir_open(struct partition* part,uint32_t inode_no);
 bool search_dir_entry(struct partition*part,struct dir* pdir,const char* name,struct dir_entry* dir_entry);

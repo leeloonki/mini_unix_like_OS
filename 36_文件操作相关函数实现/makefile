@@ -91,7 +91,7 @@ $(BUILD_DIR)/ide.o: device/ide.c device/ide.h lib/kernel/stdio-kernel.c kernel/d
 		lib/stdio.h device/timer.h kernel/interrupt.h lib/kernel/list.h lib/string.h kernel/memory.h
 		$(CC) $(CFLAGS) $< -o $@
 $(BUILD_DIR)/fs.o: fs/fs.c fs/fs.h fs/dir.h fs/inode.h fs/super_block.h device/ide.h kernel/global.h \
-		lib/kernel/stdio-kernel.h kernel/memory.h lib/string.h kernel/debug.h lib/kernel/list.h
+		lib/kernel/stdio-kernel.h kernel/memory.h lib/string.h kernel/debug.h lib/kernel/list.h	
 		$(CC) $(CFLAGS) $< -o $@
 $(BUILD_DIR)/inode.o: fs/inode.c fs/inode.h device/ide.h lib/stdint.h kernel/global.h kernel/debug.h \
 		fs/fs.h lib/string.h lib/kernel/list.h thread/thread.h kernel/memory.h kernel/interrupt.h \

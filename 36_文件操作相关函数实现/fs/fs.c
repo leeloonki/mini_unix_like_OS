@@ -3,7 +3,7 @@
 #include "inode.h"
 #include "super_block.h"
 #include "ide.h"
-#include "global.h"     //向上取整宏定义
+#include "global.h"     //向上取整宏定义   NULL定义
 #include "stdio-kernel.h"
 #include "memory.h"
 #include "string.h"
@@ -225,3 +225,111 @@ void filesys_init(){
     //默认挂载的分区，我们默认挂载"sdb1"，即./hd80M.img1
     list_traversal(&partition_list,mount_partition,(int)default_part);//mount_partition()做回调函数,返回值必须为bool类型
 }
+
+// 路径解析(每次解析上层路径名)
+// pathname：初始时为待解析文件绝对路径名如/a/b/c,name_store：解析获得的上层路径名如a或b或c
+static char* path_parse(char* pathname, char* name_store){
+    if(pathname[0]=='/'){//根目录
+        // glibc 库支持的系统中 路径中多个连续的'/'等同于一个/,如//a///b/c = /a/b/c,我们内核也按此处理
+        while(*(++pathname)=='/');
+        // 开始解析下级目录
+        while(*pathname!='/'&&*pathname!=0){
+            *name_store++ = *pathname++;
+        }
+        if(pathname[0]==0){
+            return NULL;
+        }
+        
+    }
+    return pathname;//pathname指向去除上层目录后的路径名 如/b/c
+}
+
+// 返回路径深度  /a/b/c  深度=3
+int32_t path_depth_cnt(char* pathname){
+    ASSERT(pathname!=NULL);
+    char* p = pathname;
+    uint32_t depth = 0;
+    char name[MAX_FILE_NAME_LEN];       //存放上层目录或文件
+    p = path_parse(p,name);             //去除上层目录后的路径名
+    while(name[0]){                     //目录或文件字符串不为空
+        depth++;
+        memset(name,0,MAX_FILE_NAME_LEN);//清空,存放下次经path_parse调用获取的上层目录字符串
+        if(p){
+            p = path_parse(p,name); 
+        }
+    }
+    return depth;
+}
+
+// 搜索文件pathname,若找到返回其inode 否则返回-1
+static int search_file(const char* pathname,struct path_search_record* searched_record){
+    // 对于根路径
+    if(!strcmp(pathname,"/")||!strcmp(pathname,"/.")||!strcmp(pathname,"/..")){
+        //如果路径名为 / /. /..均为根目录
+        searched_record->file_type = FT_DIRECTORY;
+        searched_record->parent_dir = &root_dir;
+        searched_record->searched_path[0] =0;//搜索路径置空
+        return 0;
+    }
+
+    uint32_t path_len = strlen(pathname);
+    ASSERT(pathname[0]=='/'&&path_len>1 &&path_len<MAX_PATH_LEN);
+
+    struct dir* parent_dir = &root_dir;
+    searched_record->parent_dir = parent_dir;
+    searched_record->file_type = FT_UNKNOWN;    //初始化为known即0
+    
+    // 解析子路径
+    char* sub_path = (char*)pathname;
+    char name[MAX_FILE_NAME_LEN];
+    sub_path = path_parse(sub_path,name);
+    uint32_t parent_inode_no =0;                //父目录的inode号
+    struct dir_entry dir_e;
+    while(name[0]){
+        // 记录已存在的父目录
+        strcat(searched_record->searched_path,"/");
+        strcat(searched_record->searched_path,name);
+        // 例：/a/b/c
+        // 在目录/下查找名为name文件或目录
+        if(search_dir_entry(cur_part,parent_dir,name,&dir_e)){//第一轮：在 "/"下找名为a的文件或目录,将a的目录项存入dir_e
+            memset(name,0,MAX_FILE_NAME_LEN);
+            if(sub_path){                                   //如果子路径存在
+                sub_path = path_parse(sub_path,name);
+            }
+            if(dir_e.f_type == FT_DIRECTORY){               //被打开的是目录
+                parent_inode_no = parent_dir->inode->i_no;
+                // 更新父目录
+                dir_close(parent_dir);
+                parent_dir = dir_open(cur_part,dir_e.i_no);
+                searched_record->parent_dir = parent_dir;
+                continue;//继续遍历下层目录
+            }else if(dir_e.f_type == FT_REGULAR){           //当前name对应的为文件非目录
+                searched_record->file_type = FT_REGULAR;
+                return dir_e.i_no;
+            }
+        }else{
+            // 找不到目录下的目录项
+            return -1;
+        }
+    }
+    // 只存在查找的文件的同名目录   
+    dir_close(searched_record->parent_dir);                //遍历到此，路径pathname已被完整解析,且pathname的最后一层路径为目录（如果是文件则返回文件的inode）
+    // 更新被查找到的目录的父目录
+    searched_record->parent_dir = dir_open(cur_part,parent_inode_no);
+    searched_record->file_type = FT_DIRECTORY;
+    return dir_e.i_no;
+}
+
+
+// 例：查找文件c,在pathname=/a/b/c/查找
+// 第一轮：
+//     parent_dir = /,name = a,sub_path = b/c/,dir_e = a->inode
+//     parent_dir = a,name = b,sub_path = c/
+
+// 第二轮：
+//     parent_dir = a,name = b,sub_path = 0,dir_e = b->inode
+//     parent_dir = b,name = c,sub_path = 0
+    
+// 第三轮：
+//     parent_dir = b,name = c,dir_e = c->inode
+//     parent_dir = c,name = 0,sub_path = 0
